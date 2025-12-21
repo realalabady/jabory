@@ -1,0 +1,181 @@
+import React, { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { 
+  Search, 
+  ShoppingCart, 
+  User, 
+  Menu, 
+  X, 
+  Heart,
+  Phone,
+  ChevronDown
+} from 'lucide-react';
+import { useStore } from '../../store/useStore';
+import './Header.css';
+
+const Header: React.FC = () => {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const { getCartCount, user, searchQuery, setSearchQuery } = useStore();
+  const navigate = useNavigate();
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      navigate(`/products?search=${encodeURIComponent(searchQuery)}`);
+      setSearchOpen(false);
+    }
+  };
+
+  return (
+    <header className="header">
+      {/* Top Bar */}
+      <div className="header-top">
+        <div className="container">
+          <div className="header-top-content">
+            <div className="header-contact">
+              <Phone size={14} />
+              <span>920000000</span>
+            </div>
+            <div className="header-promo">
+              🎉 شحن مجاني للطلبات فوق 200 ريال
+            </div>
+            <div className="header-links">
+              {user ? (
+                <Link to={user.role === 'admin' ? '/dashboard' : '/account'}>
+                  حسابي
+                </Link>
+              ) : (
+                <>
+                  <Link to="/login">تسجيل الدخول</Link>
+                  <span>|</span>
+                  <Link to="/register">حساب جديد</Link>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Header */}
+      <div className="header-main">
+        <div className="container">
+          <div className="header-main-content">
+            {/* Mobile Menu Toggle */}
+            <button 
+              className="mobile-menu-toggle"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            >
+              {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+
+            {/* Logo */}
+            <Link to="/" className="logo">
+              <span className="logo-text">جبوري</span>
+              <span className="logo-sub">للإلكترونيات</span>
+            </Link>
+
+            {/* Search Bar */}
+            <form className="search-bar" onSubmit={handleSearch}>
+              <input
+                type="text"
+                placeholder="ابحث عن منتجات..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              <button type="submit">
+                <Search size={20} />
+              </button>
+            </form>
+
+            {/* Header Actions */}
+            <div className="header-actions">
+              <button 
+                className="search-toggle"
+                onClick={() => setSearchOpen(!searchOpen)}
+              >
+                <Search size={22} />
+              </button>
+
+              <Link to="/wishlist" className="action-btn">
+                <Heart size={22} />
+              </Link>
+
+              <Link to="/cart" className="action-btn cart-btn">
+                <ShoppingCart size={22} />
+                {getCartCount() > 0 && (
+                  <span className="cart-count">{getCartCount()}</span>
+                )}
+              </Link>
+
+              <Link to={user ? '/account' : '/login'} className="action-btn">
+                <User size={22} />
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile Search */}
+      {searchOpen && (
+        <div className="mobile-search">
+          <form onSubmit={handleSearch}>
+            <input
+              type="text"
+              placeholder="ابحث عن منتجات..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              autoFocus
+            />
+            <button type="submit">
+              <Search size={20} />
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Navigation */}
+      <nav className={`nav ${mobileMenuOpen ? 'nav-open' : ''}`}>
+        <div className="container">
+          <ul className="nav-menu">
+            <li className="nav-item">
+              <Link to="/" className="nav-link">الرئيسية</Link>
+            </li>
+            <li className="nav-item has-dropdown">
+              <span className="nav-link">
+                التصنيفات <ChevronDown size={16} />
+              </span>
+              <div className="dropdown-menu">
+                <Link to="/products?category=phones">الجوالات والأجهزة الذكية</Link>
+                <Link to="/products?category=laptops">اللابتوبات والكمبيوتر</Link>
+                <Link to="/products?category=tvs">التلفزيونات والشاشات</Link>
+                <Link to="/products?category=gaming">الألعاب والقيمنق</Link>
+                <Link to="/products?category=audio">السماعات والصوتيات</Link>
+                <Link to="/products?category=accessories">الإكسسوارات</Link>
+              </div>
+            </li>
+            <li className="nav-item">
+              <Link to="/products?featured=true" className="nav-link">العروض</Link>
+            </li>
+            <li className="nav-item">
+              <Link to="/products?new=true" className="nav-link">وصل حديثاً</Link>
+            </li>
+            <li className="nav-item">
+              <Link to="/contact" className="nav-link">اتصل بنا</Link>
+            </li>
+          </ul>
+        </div>
+      </nav>
+
+      {/* Mobile Menu Overlay */}
+      {mobileMenuOpen && (
+        <div 
+          className="mobile-overlay"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+    </header>
+  );
+};
+
+export default Header;
