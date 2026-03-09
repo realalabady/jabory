@@ -21,6 +21,80 @@ export interface Product {
   profitMargin?: number; // هامش الربح (%)
   autoSync?: boolean; // مزامنة تلقائية مع المورد
   lastSyncAt?: Date; // آخر مزامنة
+
+  // حقول CJ Dropshipping
+  isCJProduct?: boolean; // هل هذا منتج من CJ
+  cjProductId?: string; // معرف المنتج في CJ
+  cjVariantId?: string; // معرف المتغير في CJ
+  cjSku?: string; // SKU في CJ
+  cjCategoryId?: string; // تصنيف CJ
+  cjSourcePrice?: number; // سعر CJ بالدولار
+  cjImageUrl?: string; // رابط صورة CJ الأصلية
+}
+
+// أنواع CJ Dropshipping
+export interface CJProduct {
+  pid: string;
+  productNameEn: string;
+  productNameAr?: string;
+  productSku: string;
+  productImage: string;
+  productWeight: number;
+  productType: string;
+  productUnit: string;
+  sellPrice: number;
+  categoryId: string;
+  categoryName: string;
+  sourceFrom: number;
+  remark: string;
+  createTime: string;
+  variants: CJVariant[];
+}
+
+export interface CJVariant {
+  vid: string;
+  variantNameEn: string;
+  variantSku: string;
+  variantImage: string;
+  variantStandard: string;
+  variantPrice: number;
+  variantVolume: number;
+  variantWeight: number;
+  variantKey: string;
+  createTime: string;
+}
+
+export interface CJOrderItem {
+  vid: string;
+  quantity: number;
+}
+
+export interface CJOrderRequest {
+  orderNumber: string;
+  shippingZip: string;
+  shippingCountryCode: string;
+  shippingCountry: string;
+  shippingProvince: string;
+  shippingCity: string;
+  shippingAddress: string;
+  shippingCustomerName: string;
+  shippingPhone: string;
+  remark: string;
+  fromCountryCode: string;
+  logisticName: string;
+  products: CJOrderItem[];
+}
+
+export interface CJSettings {
+  apiKey: string;
+  accessToken?: string;
+  refreshToken?: string;
+  tokenExpiresAt?: Date;
+  defaultMarkup: number; // نسبة الربح الافتراضية %
+  usdToSar: number; // سعر تحويل الدولار إلى ريال
+  autoForwardOrders: boolean; // إرسال الطلبات تلقائياً إلى CJ
+  defaultWarehouse: string; // المستودع الافتراضي (CN, US, TH, etc.)
+  defaultLogistic: string; // شركة الشحن الافتراضية
 }
 
 export interface Category {

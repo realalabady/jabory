@@ -32,7 +32,9 @@ function isAlibabaUrl(url: string): boolean {
 }
 
 function isAmazonUrl(url: string): boolean {
-  return /amazon\.(com|sa|ae|co\.uk|de|fr|es|it|co\.jp|in|com\.br|com\.au|nl|pl|se|sg|com\.mx|com\.tr|eg)/i.test(url);
+  return /amazon\.(com|sa|ae|co\.uk|de|fr|es|it|co\.jp|in|com\.br|com\.au|nl|pl|se|sg|com\.mx|com\.tr|eg)/i.test(
+    url,
+  );
 }
 
 function isNoonUrl(url: string): boolean {
@@ -44,7 +46,9 @@ function isTemuUrl(url: string): boolean {
 }
 
 function isEbayUrl(url: string): boolean {
-  return /ebay\.(com|co\.uk|de|fr|es|it|com\.au|ca|at|ch|ie|ph|pl|nl|be|sg)/i.test(url);
+  return /ebay\.(com|co\.uk|de|fr|es|it|com\.au|ca|at|ch|ie|ph|pl|nl|be|sg)/i.test(
+    url,
+  );
 }
 
 function getSiteName(url: string): string {
@@ -231,7 +235,9 @@ async function fetchWithProxy(url: string): Promise<string> {
       let baseDomain = "www.amazon.com";
       try {
         baseDomain = new URL(cleaned).hostname;
-      } catch { /* */ }
+      } catch {
+        /* */
+      }
       const altUrls = [
         // Minimal DP page (no referral extras)
         `https://${baseDomain}/dp/${asin}`,
@@ -1125,19 +1131,13 @@ function parseNoon(html: string, url: string): ScrapedProduct {
         }
 
         const price =
-          catalog.sale_price ||
-          catalog.price ||
-          catalog.special_price ||
-          0;
+          catalog.sale_price || catalog.price || catalog.special_price || 0;
         if (price) {
           product.price = parseFloat(String(price)) || 0;
           product.supplierPrice = product.price;
         }
         const oldPrice =
-          catalog.was_price ||
-          catalog.old_price ||
-          catalog.regular_price ||
-          0;
+          catalog.was_price || catalog.old_price || catalog.regular_price || 0;
         if (oldPrice) {
           const v = parseFloat(String(oldPrice));
           if (v > product.price) product.oldPrice = v;

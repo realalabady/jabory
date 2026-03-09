@@ -42,6 +42,9 @@ import Customers from "./pages/Dashboard/Customers";
 import Analytics from "./pages/Dashboard/Analytics";
 import Settings from "./pages/Dashboard/Settings";
 import Messages from "./pages/Dashboard/Messages";
+import CJProducts from "./pages/Dashboard/CJProducts";
+import CJOrders from "./pages/Dashboard/CJOrders";
+import CJSettings from "./pages/Dashboard/CJSettings";
 
 // Styles
 import "./styles/globals.css";
@@ -139,6 +142,9 @@ const App: React.FC = () => {
           <Route path="analytics" element={<Analytics />} />
           <Route path="settings" element={<Settings />} />
           <Route path="messages" element={<Messages />} />
+          <Route path="cj-products" element={<CJProducts />} />
+          <Route path="cj-orders" element={<CJOrders />} />
+          <Route path="cj-settings" element={<CJSettings />} />
         </Route>
 
         {/* Store Routes */}

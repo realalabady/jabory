@@ -257,7 +257,37 @@ const Orders: React.FC = () => {
                     return (
                       <tr key={order.id}>
                         <td>
+                          {order.isCJOrder && (
+                            <span
+                              style={{
+                                padding: "2px 6px",
+                                background: "#f59e0b",
+                                color: "white",
+                                borderRadius: "4px",
+                                fontSize: "10px",
+                                fontWeight: 700,
+                                marginLeft: "6px",
+                              }}
+                            >
+                              CJ
+                            </span>
+                          )}
                           <strong>{order.id.slice(-8)}</strong>
+                          {order.trackingNumber && (
+                            <div
+                              style={{
+                                fontSize: "11px",
+                                color: "var(--gray)",
+                                marginTop: "2px",
+                              }}
+                            >
+                              <Truck
+                                size={10}
+                                style={{ display: "inline", marginLeft: "2px" }}
+                              />
+                              {order.trackingNumber}
+                            </div>
+                          )}
                         </td>
                         <td>
                           <div className="customer-cell">

@@ -879,7 +879,8 @@ const Products: React.FC = () => {
                   lineHeight: "1.8",
                 }}
               >
-                المتاجر المدعومة: Amazon • AliExpress • Noon • SHEIN • Temu • eBay • Alibaba • أي موقع آخر
+                المتاجر المدعومة: Amazon • AliExpress • Noon • SHEIN • Temu •
+                eBay • Alibaba • أي موقع آخر
               </p>
               <div className="form-group">
                 <label className="form-label">رابط المنتج</label>

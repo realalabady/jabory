@@ -13,6 +13,7 @@ import {
   Bell,
   ChevronDown,
   MessageSquare,
+  Truck,
 } from "lucide-react";
 import { signOut } from "firebase/auth";
 import { auth } from "../../config/firebase";
@@ -36,6 +37,12 @@ const menuItems = [
   { path: "/dashboard/messages", icon: MessageSquare, label: "الرسائل" },
   { path: "/dashboard/analytics", icon: BarChart3, label: "التقارير" },
   { path: "/dashboard/settings", icon: Settings, label: "الإعدادات" },
+];
+
+const cjMenuItems = [
+  { path: "/dashboard/cj-products", icon: Package, label: "منتجات CJ" },
+  { path: "/dashboard/cj-orders", icon: Truck, label: "طلبات CJ" },
+  { path: "/dashboard/cj-settings", icon: Settings, label: "إعدادات CJ" },
 ];
 
 const DashboardLayout: React.FC = () => {
@@ -115,6 +122,37 @@ const DashboardLayout: React.FC = () => {
               </li>
             ))}
           </ul>
+
+          {/* CJ Dropshipping Section */}
+          <div
+            className="sidebar-section-title"
+            style={{
+              padding: "12px 20px 6px",
+              fontSize: "11px",
+              fontWeight: 700,
+              color: "rgba(255,255,255,0.4)",
+              textTransform: "uppercase",
+              letterSpacing: "1px",
+              marginTop: "8px",
+              borderTop: "1px solid rgba(255,255,255,0.1)",
+            }}
+          >
+            CJ Dropshipping
+          </div>
+          <ul>
+            {cjMenuItems.map((item) => (
+              <li key={item.path}>
+                <Link
+                  to={item.path}
+                  className={`nav-link ${isActive(item.path) ? "active" : ""}`}
+                  onClick={handleNavClick}
+                >
+                  <item.icon size={20} />
+                  <span>{item.label}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
         </nav>
 
         <div className="sidebar-footer">
@@ -134,8 +172,14 @@ const DashboardLayout: React.FC = () => {
               <Menu size={24} />
             </button>
             <h1 className="page-title">
-              {menuItems.find((item) => isActive(item.path, item.exact))
-                ?.label || "لوحة التحكم"}
+              {[...menuItems, ...cjMenuItems].find((item) =>
+                isActive(
+                  item.path,
+                  "exact" in item
+                    ? (item as { exact?: boolean }).exact
+                    : undefined,
+                ),
+              )?.label || "لوحة التحكم"}
             </h1>
           </div>
 
