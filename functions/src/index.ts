@@ -361,13 +361,32 @@ export const cjSyncOrderStatuses = functions.https.onCall(
 
 // ==================== بروكسي صور CJ ====================
 export const cjImageProxy = functions.https.onRequest(async (req, res) => {
+  // Allow CORS preflight
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "GET");
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
   const url = req.query.url as string;
 
-  if (
-    !url ||
-    typeof url !== "string" ||
-    !url.startsWith("https://cf.cjdropshipping.com/")
-  ) {
+  // Allow CJ Dropshipping image domains
+  const allowedDomains = [
+    "cf.cjdropshipping.com",
+    "cbu01.alicdn.com",
+    "cjdropshipping.com",
+    "img.cjdropshipping.com",
+    "image.cjdropshipping.com",
+    "assets.cjdropshipping.com",
+    "alicdn.com",
+  ];
+
+  const isAllowed = allowedDomains.some((domain) =>
+    url?.includes(domain)
+  );
+
+  if (!url || typeof url !== "string" || !isAllowed) {
     res.status(400).send("Invalid URL");
     return;
   }
