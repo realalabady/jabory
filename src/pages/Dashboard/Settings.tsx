@@ -51,7 +51,7 @@ const Settings: React.FC = () => {
   const [paymentMethods, setPaymentMethods] = useState([
     { id: "cash", name: "الدفع عند الاستلام", enabled: true },
     { id: "bank", name: "التحويل البنكي", enabled: true },
-    { id: "card", name: "بطاقة ائتمان (قريباً)", enabled: false },
+    { id: "card", name: "بطاقة ائتمان (PayPal)", enabled: true },
   ]);
 
   const [showPasswordModal, setShowPasswordModal] = useState(false);

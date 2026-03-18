@@ -1,6 +1,7 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as cj from "./cjClient";
+import * as paypal from "./paypalClient";
 
 admin.initializeApp();
 
@@ -389,3 +390,151 @@ export const cjImageProxy = functions.https.onRequest(async (req, res) => {
     res.status(500).send("Proxy error");
   }
 });
+
+// ==================== PayPal - إنشاء طلب دفع ====================
+export const paypalCreateOrder = functions.https.onCall(
+  async (data, context) => {
+    // التحقق من تسجيل الدخول
+    if (!context.auth) {
+      throw new functions.https.HttpsError(
+        "unauthenticated",
+        "يجب تسجيل الدخول لإتمام الدفع"
+      );
+    }
+
+    const { amount, currency, orderId, description } = data;
+
+    if (!amount || amount <= 0) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "المبلغ غير صحيح"
+      );
+    }
+
+    if (!orderId) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "معرف الطلب مطلوب"
+      );
+    }
+
+    try {
+      const result = await paypal.createOrder({
+        amount: parseFloat(amount),
+        currency: currency || "SAR",
+        orderId,
+        description: description || `طلب من جبوري للإلكترونيات #${orderId}`,
+      });
+
+      // حفظ معرف PayPal في الطلب المؤقت
+      await admin.firestore().doc(`pending_payments/${orderId}`).set({
+        userId: context.auth.uid,
+        paypalOrderId: result.id,
+        amount,
+        currency: currency || "SAR",
+        status: "CREATED",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      return result;
+    } catch (error) {
+      console.error("PayPal create order error:", error);
+      const msg = error instanceof Error ? error.message : "خطأ في إنشاء طلب الدفع";
+      throw new functions.https.HttpsError("internal", msg);
+    }
+  }
+);
+
+// ==================== PayPal - تأكيد الدفع ====================
+export const paypalCaptureOrder = functions.https.onCall(
+  async (data, context) => {
+    // التحقق من تسجيل الدخول
+    if (!context.auth) {
+      throw new functions.https.HttpsError(
+        "unauthenticated",
+        "يجب تسجيل الدخول لإتمام الدفع"
+      );
+    }
+
+    const { paypalOrderId, firestoreOrderId } = data;
+
+    if (!paypalOrderId) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "معرف طلب PayPal مطلوب"
+      );
+    }
+
+    try {
+      const result = await paypal.captureOrder(paypalOrderId);
+
+      // تحديث حالة الدفع المعلق
+      const pendingRef = admin.firestore().collection("pending_payments");
+      const pendingSnap = await pendingRef
+        .where("paypalOrderId", "==", paypalOrderId)
+        .where("userId", "==", context.auth.uid)
+        .limit(1)
+        .get();
+
+      if (!pendingSnap.empty) {
+        await pendingSnap.docs[0].ref.update({
+          status: result.status,
+          captureId: result.captureId,
+          capturedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+
+      // تحديث الطلب في Firestore إذا موجود
+      if (firestoreOrderId) {
+        await admin.firestore().doc(`orders/${firestoreOrderId}`).update({
+          paymentStatus: "paid",
+          paypalOrderId: paypalOrderId,
+          paypalCaptureId: result.captureId,
+          paidAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+
+      return result;
+    } catch (error) {
+      console.error("PayPal capture error:", error);
+      const msg = error instanceof Error ? error.message : "خطأ في تأكيد الدفع";
+      throw new functions.https.HttpsError("internal", msg);
+    }
+  }
+);
+
+// ==================== PayPal - التحقق من حالة الطلب ====================
+export const paypalGetOrderStatus = functions.https.onCall(
+  async (data, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError(
+        "unauthenticated",
+        "يجب تسجيل الدخول"
+      );
+    }
+
+    const { paypalOrderId } = data;
+
+    if (!paypalOrderId) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "معرف طلب PayPal مطلوب"
+      );
+    }
+
+    try {
+      const result = await paypal.getOrderDetails(paypalOrderId);
+      return {
+        id: result.id,
+        status: result.status,
+        amount: result.purchase_units?.[0]?.amount?.value,
+        currency: result.purchase_units?.[0]?.amount?.currency_code,
+      };
+    } catch (error) {
+      console.error("PayPal get order error:", error);
+      const msg = error instanceof Error ? error.message : "خطأ في جلب حالة الطلب";
+      throw new functions.https.HttpsError("internal", msg);
+    }
+  }
+);

@@ -33,10 +33,11 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.cjImageProxy = exports.cjSyncOrderStatuses = exports.onOrderCreated = exports.cjGetBalance = exports.cjCalculateFreight = exports.cjGetTracking = exports.cjListOrders = exports.cjConfirmOrder = exports.cjCreateOrder = exports.cjGetCategories = exports.cjGetProductInventory = exports.cjGetProductVariants = exports.cjGetProductDetail = exports.cjSearchProducts = exports.cjTestConnection = void 0;
+exports.paypalGetOrderStatus = exports.paypalCaptureOrder = exports.paypalCreateOrder = exports.cjImageProxy = exports.cjSyncOrderStatuses = exports.onOrderCreated = exports.cjGetBalance = exports.cjCalculateFreight = exports.cjGetTracking = exports.cjListOrders = exports.cjConfirmOrder = exports.cjCreateOrder = exports.cjGetCategories = exports.cjGetProductInventory = exports.cjGetProductVariants = exports.cjGetProductDetail = exports.cjSearchProducts = exports.cjTestConnection = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const cj = __importStar(require("./cjClient"));
+const paypal = __importStar(require("./paypalClient"));
 admin.initializeApp();
 // التحقق من أن المستخدم أدمن
 async function verifyAdmin(auth) {
@@ -381,6 +382,112 @@ exports.cjImageProxy = functions.https.onRequest(async (req, res) => {
     }
     catch (_a) {
         res.status(500).send("Proxy error");
+    }
+});
+// ==================== PayPal - إنشاء طلب دفع ====================
+exports.paypalCreateOrder = functions.https.onCall(async (data, context) => {
+    // التحقق من تسجيل الدخول
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "يجب تسجيل الدخول لإتمام الدفع");
+    }
+    const { amount, currency, orderId, description } = data;
+    if (!amount || amount <= 0) {
+        throw new functions.https.HttpsError("invalid-argument", "المبلغ غير صحيح");
+    }
+    if (!orderId) {
+        throw new functions.https.HttpsError("invalid-argument", "معرف الطلب مطلوب");
+    }
+    try {
+        const result = await paypal.createOrder({
+            amount: parseFloat(amount),
+            currency: currency || "SAR",
+            orderId,
+            description: description || `طلب من جبوري للإلكترونيات #${orderId}`,
+        });
+        // حفظ معرف PayPal في الطلب المؤقت
+        await admin.firestore().doc(`pending_payments/${orderId}`).set({
+            userId: context.auth.uid,
+            paypalOrderId: result.id,
+            amount,
+            currency: currency || "SAR",
+            status: "CREATED",
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        return result;
+    }
+    catch (error) {
+        console.error("PayPal create order error:", error);
+        const msg = error instanceof Error ? error.message : "خطأ في إنشاء طلب الدفع";
+        throw new functions.https.HttpsError("internal", msg);
+    }
+});
+// ==================== PayPal - تأكيد الدفع ====================
+exports.paypalCaptureOrder = functions.https.onCall(async (data, context) => {
+    // التحقق من تسجيل الدخول
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "يجب تسجيل الدخول لإتمام الدفع");
+    }
+    const { paypalOrderId, firestoreOrderId } = data;
+    if (!paypalOrderId) {
+        throw new functions.https.HttpsError("invalid-argument", "معرف طلب PayPal مطلوب");
+    }
+    try {
+        const result = await paypal.captureOrder(paypalOrderId);
+        // تحديث حالة الدفع المعلق
+        const pendingRef = admin.firestore().collection("pending_payments");
+        const pendingSnap = await pendingRef
+            .where("paypalOrderId", "==", paypalOrderId)
+            .where("userId", "==", context.auth.uid)
+            .limit(1)
+            .get();
+        if (!pendingSnap.empty) {
+            await pendingSnap.docs[0].ref.update({
+                status: result.status,
+                captureId: result.captureId,
+                capturedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }
+        // تحديث الطلب في Firestore إذا موجود
+        if (firestoreOrderId) {
+            await admin.firestore().doc(`orders/${firestoreOrderId}`).update({
+                paymentStatus: "paid",
+                paypalOrderId: paypalOrderId,
+                paypalCaptureId: result.captureId,
+                paidAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }
+        return result;
+    }
+    catch (error) {
+        console.error("PayPal capture error:", error);
+        const msg = error instanceof Error ? error.message : "خطأ في تأكيد الدفع";
+        throw new functions.https.HttpsError("internal", msg);
+    }
+});
+// ==================== PayPal - التحقق من حالة الطلب ====================
+exports.paypalGetOrderStatus = functions.https.onCall(async (data, context) => {
+    var _a, _b, _c, _d, _e, _f;
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "يجب تسجيل الدخول");
+    }
+    const { paypalOrderId } = data;
+    if (!paypalOrderId) {
+        throw new functions.https.HttpsError("invalid-argument", "معرف طلب PayPal مطلوب");
+    }
+    try {
+        const result = await paypal.getOrderDetails(paypalOrderId);
+        return {
+            id: result.id,
+            status: result.status,
+            amount: (_c = (_b = (_a = result.purchase_units) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.amount) === null || _c === void 0 ? void 0 : _c.value,
+            currency: (_f = (_e = (_d = result.purchase_units) === null || _d === void 0 ? void 0 : _d[0]) === null || _e === void 0 ? void 0 : _e.amount) === null || _f === void 0 ? void 0 : _f.currency_code,
+        };
+    }
+    catch (error) {
+        console.error("PayPal get order error:", error);
+        const msg = error instanceof Error ? error.message : "خطأ في جلب حالة الطلب";
+        throw new functions.https.HttpsError("internal", msg);
     }
 });
 //# sourceMappingURL=index.js.map

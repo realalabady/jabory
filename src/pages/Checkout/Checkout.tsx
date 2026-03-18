@@ -18,6 +18,7 @@ import {
 } from "../../services/firestore";
 import Header from "../../components/Header/Header";
 import Footer from "../../components/Footer/Footer";
+import PayPalCardForm from "../../components/PayPalCardForm/PayPalCardForm";
 import "./Checkout.css";
 
 interface ShippingSettings {
@@ -45,10 +46,10 @@ const Checkout: React.FC = () => {
     enableFreeShipping: true,
     estimatedDays: "3-5",
   });
-  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([
+  const [paymentMethods] = useState<PaymentMethod[]>([
     { id: "cash", name: "الدفع عند الاستلام", enabled: true },
     { id: "bank", name: "التحويل البنكي", enabled: true },
-    { id: "card", name: "بطاقة ائتمان", enabled: false },
+    { id: "card", name: "بطاقة ائتمان", enabled: true },
   ]);
 
   const [formData, setFormData] = useState({
@@ -64,6 +65,8 @@ const Checkout: React.FC = () => {
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [cardProcessing, setCardProcessing] = useState(false);
+  const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
 
   // جلب الإعدادات من Firestore
   useEffect(() => {
@@ -74,9 +77,8 @@ const Checkout: React.FC = () => {
           if (settings.shipping) {
             setShippingSettings(settings.shipping);
           }
-          if (settings.payment?.methods) {
-            setPaymentMethods(settings.payment.methods);
-          }
+          // نتجاهل إعدادات الدفع من Firestore ونستخدم الافتراضية مع البطاقة مفعّلة
+          // لأن Firestore فيه بيانات قديمة
         }
       } catch (error) {
         console.error("Error fetching settings:", error);
@@ -223,6 +225,112 @@ const Checkout: React.FC = () => {
       setLoading(false);
     }
   };
+
+  // إنشاء معرف طلب فريد للدفع بالبطاقة
+  const generateOrderId = () => {
+    return `JAB-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  };
+
+  // التعامل مع نجاح الدفع بالبطاقة
+  const handleCardPaymentSuccess = async (captureData: {
+    paypalOrderId: string;
+    captureId: string;
+    status: string;
+  }) => {
+    if (!user) {
+      navigate("/login");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // التحقق من توفر المخزون
+      const { products } = useStore.getState();
+      const stockErrors: string[] = [];
+      for (const item of cart) {
+        const currentProduct = products.find((p) => p.id === item.product.id);
+        if (currentProduct && currentProduct.stock < item.quantity) {
+          stockErrors.push(
+            `${item.product.name}: متوفر ${currentProduct.stock} فقط (طلبت ${item.quantity})`,
+          );
+        }
+      }
+      if (stockErrors.length > 0) {
+        alert(
+          "بعض المنتجات غير متوفرة بالكمية المطلوبة:\n" +
+            stockErrors.join("\n"),
+        );
+        setLoading(false);
+        return;
+      }
+
+      const orderData = {
+        userId: user.id,
+        customer: formData.fullName,
+        email: user.email,
+        phone: formData.phone,
+        items: cart.map((item) => ({
+          productId: item.product.id,
+          name: item.product.name,
+          quantity: item.quantity,
+          price: item.product.price,
+          image: item.product.images[0] || "",
+        })),
+        total: total,
+        subtotal: subtotal,
+        shippingCost: shipping,
+        status: "pending" as const,
+        paymentMethod: "card",
+        paymentStatus: "paid" as const,
+        paypalOrderId: captureData.paypalOrderId,
+        paypalCaptureId: captureData.captureId,
+        paidAt: new Date(),
+        shippingAddress: `${formData.city}، ${formData.district}، ${formData.street}${formData.building ? `، مبنى ${formData.building}` : ""}${formData.nationalAddress ? `، العنوان الوطني: ${formData.nationalAddress}` : ""}`,
+        address: {
+          fullName: formData.fullName,
+          phone: formData.phone,
+          city: formData.city,
+          district: formData.district,
+          street: formData.street,
+          building: formData.building,
+          nationalAddress: formData.nationalAddress,
+        },
+        notes: formData.notes,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      await addOrder(orderData);
+
+      // تخفيض المخزون
+      for (const item of cart) {
+        await decrementStock(item.product.id, item.quantity);
+      }
+
+      setOrderPlaced(true);
+      clearCart();
+      setStep(3);
+    } catch (error) {
+      console.error("Error creating order after card payment:", error);
+      alert("تم الدفع بنجاح ولكن حدث خطأ في حفظ الطلب. يرجى التواصل معنا.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // التعامل مع خطأ الدفع بالبطاقة
+  const handleCardPaymentError = (error: string) => {
+    console.error("Card payment error:", error);
+    alert(`خطأ في الدفع: ${error}`);
+  };
+
+  // تهيئة معرف الطلب للدفع بالبطاقة
+  useEffect(() => {
+    if (step === 2 && formData.paymentMethod === "card" && !pendingOrderId) {
+      setPendingOrderId(generateOrderId());
+    }
+  }, [step, formData.paymentMethod, pendingOrderId]);
 
   // صفحة تسجيل الدخول إذا لم يكن هناك مستخدم
   if (!user) {
@@ -511,6 +619,17 @@ const Checkout: React.FC = () => {
                           </p>
                         </div>
                       )}
+
+                      {formData.paymentMethod === "card" && pendingOrderId && (
+                        <PayPalCardForm
+                          amount={total}
+                          currency="SAR"
+                          orderId={pendingOrderId}
+                          onSuccess={handleCardPaymentSuccess}
+                          onError={handleCardPaymentError}
+                          onProcessing={setCardProcessing}
+                        />
+                      )}
                     </div>
                   </div>
 
@@ -518,17 +637,19 @@ const Checkout: React.FC = () => {
                     <button
                       className="btn btn-outline"
                       onClick={() => setStep(1)}
+                      disabled={cardProcessing}
                     >
                       <ArrowRight size={18} />
                       السابق
                     </button>
-                    <button
-                      className="btn btn-primary"
-                      onClick={handleSubmitOrder}
-                      disabled={loading}
-                    >
-                      {loading ? (
-                        <>
+                    {formData.paymentMethod !== "card" && (
+                      <button
+                        className="btn btn-primary"
+                        onClick={handleSubmitOrder}
+                        disabled={loading}
+                      >
+                        {loading ? (
+                          <>
                           <Loader className="spinner" size={18} />
                           جاري إرسال الطلب...
                         </>
@@ -536,6 +657,7 @@ const Checkout: React.FC = () => {
                         `تأكيد الطلب - ${formatPrice(total)}`
                       )}
                     </button>
+                    )}
                   </div>
                 </div>
               )}
