@@ -13,6 +13,7 @@ import {
   Loader,
   Link2,
   ExternalLink,
+  Palette,
 } from "lucide-react";
 import { useStore } from "../../store/useStore";
 import {
@@ -21,8 +22,8 @@ import {
   deleteProduct as deleteProductFromFirestore,
 } from "../../services/firestore";
 import { uploadImages } from "../../services/storage";
-import { scrapeProductByUrl } from "../../services/scraperService";
-import type { Product } from "../../types";
+import { scrapeProductByUrl, convertToProductVariants } from "../../services/scraperService";
+import type { Product, ProductVariantType, ProductVariant } from "../../types";
 import "./Products.css";
 
 const Products: React.FC = () => {
@@ -46,6 +47,14 @@ const Products: React.FC = () => {
     supplierUrl: "",
     supplierName: "",
     supplierPrice: "",
+    // المتغيرات
+    hasVariants: false,
+    variantTypes: [] as ProductVariantType[],
+    variants: [] as ProductVariant[],
+    // حقول إضافية من أمازون
+    asin: "",
+    brand: "",
+    features: [] as string[],
   });
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -91,6 +100,14 @@ const Products: React.FC = () => {
         supplierUrl: product.supplierUrl || "",
         supplierName: product.supplierName || "",
         supplierPrice: product.supplierPrice?.toString() || "",
+        // المتغيرات
+        hasVariants: product.hasVariants || false,
+        variantTypes: product.variantTypes || [],
+        variants: product.variants || [],
+        // حقول أمازون
+        asin: product.asin || "",
+        brand: product.brand || "",
+        features: product.features || [],
       });
     } else {
       setEditingProduct(null);
@@ -108,6 +125,12 @@ const Products: React.FC = () => {
         supplierUrl: "",
         supplierName: "",
         supplierPrice: "",
+        hasVariants: false,
+        variantTypes: [],
+        variants: [],
+        asin: "",
+        brand: "",
+        features: [],
       });
     }
     setShowModal(true);
@@ -215,6 +238,26 @@ const Products: React.FC = () => {
       }
       if (supplierPrice && !isNaN(supplierPrice)) {
         productData.supplierPrice = supplierPrice;
+      }
+      
+      // المتغيرات
+      if (formData.hasVariants && formData.variantTypes.length > 0) {
+        productData.hasVariants = true;
+        productData.variantTypes = formData.variantTypes;
+        if (formData.variants.length > 0) {
+          productData.variants = formData.variants;
+        }
+      }
+      
+      // حقول أمازون
+      if (formData.asin) {
+        productData.asin = formData.asin;
+      }
+      if (formData.brand) {
+        productData.brand = formData.brand;
+      }
+      if (formData.features && formData.features.length > 0) {
+        productData.features = formData.features;
       }
 
       if (editingProduct) {
@@ -357,6 +400,10 @@ const Products: React.FC = () => {
     setUrlLoading(true);
     try {
       const scraped = await scrapeProductByUrl(productUrl.trim());
+      
+      // تحويل المتغيرات
+      const { variantTypes, variants } = convertToProductVariants(scraped);
+      
       // تعبئة نموذج المنتج بالبيانات المجلوبة
       setFormData({
         name: scraped.name || "",
@@ -371,6 +418,14 @@ const Products: React.FC = () => {
         supplierUrl: scraped.supplierUrl || "",
         supplierName: scraped.supplierName || "",
         supplierPrice: scraped.supplierPrice ? scraped.supplierPrice.toString() : "",
+        // المتغيرات
+        hasVariants: scraped.hasVariants || false,
+        variantTypes: variantTypes || [],
+        variants: variants || [],
+        // حقول إضافية
+        asin: scraped.asin || "",
+        brand: scraped.brand || "",
+        features: scraped.features || [],
       });
       setEditingProduct(null);
       setPendingFiles([]);
@@ -394,6 +449,8 @@ const Products: React.FC = () => {
     setUrlLoading(true);
     try {
       const scraped = await scrapeProductByUrl(productUrl.trim());
+      const { variantTypes, variants } = convertToProductVariants(scraped);
+      
       if (!scraped.name || !scraped.price) {
         // إذا البيانات ناقصة، افتح النموذج للمراجعة
         setFormData({
@@ -409,6 +466,12 @@ const Products: React.FC = () => {
           supplierUrl: scraped.supplierUrl || "",
           supplierName: scraped.supplierName || "",
           supplierPrice: scraped.supplierPrice ? scraped.supplierPrice.toString() : "",
+          hasVariants: scraped.hasVariants || false,
+          variantTypes: variantTypes || [],
+          variants: variants || [],
+          asin: scraped.asin || "",
+          brand: scraped.brand || "",
+          features: scraped.features || [],
         });
         setEditingProduct(null);
         setPendingFiles([]);
@@ -417,12 +480,13 @@ const Products: React.FC = () => {
         alert("البيانات غير مكتملة. يرجى مراجعة وإكمال المعلومات.");
         return;
       }
-      await addProductToFirestore({
+      
+      // بناء بيانات المنتج
+      const productData: Record<string, unknown> = {
         name: scraped.name,
         nameEn: scraped.nameEn || "",
         description: scraped.description || "",
         price: scraped.price,
-        oldPrice: scraped.oldPrice,
         category: "",
         images:
           scraped.images.length > 0
@@ -430,12 +494,29 @@ const Products: React.FC = () => {
             : ["https://via.placeholder.com/300"],
         stock: 10,
         featured: false,
-        supplierUrl: scraped.supplierUrl,
-        supplierName: scraped.supplierName,
-        supplierPrice: scraped.supplierPrice,
         createdAt: new Date(),
         updatedAt: new Date(),
-      });
+      };
+      
+      // إضافة الحقول الاختيارية
+      if (scraped.oldPrice) productData.oldPrice = scraped.oldPrice;
+      if (scraped.supplierUrl) productData.supplierUrl = scraped.supplierUrl;
+      if (scraped.supplierName) productData.supplierName = scraped.supplierName;
+      if (scraped.supplierPrice) productData.supplierPrice = scraped.supplierPrice;
+      if (scraped.asin) productData.asin = scraped.asin;
+      if (scraped.brand) productData.brand = scraped.brand;
+      if (scraped.features && scraped.features.length > 0) productData.features = scraped.features;
+      
+      // إضافة المتغيرات
+      if (scraped.hasVariants && variantTypes && variantTypes.length > 0) {
+        productData.hasVariants = true;
+        productData.variantTypes = variantTypes;
+        if (variants && variants.length > 0) {
+          productData.variants = variants;
+        }
+      }
+      
+      await addProductToFirestore(productData as Omit<Product, "id">);
       alert("تمت إضافة المنتج بنجاح!");
       setShowUrlModal(false);
       setProductUrl("");
@@ -880,6 +961,44 @@ const Products: React.FC = () => {
                     )}
                   </div>
                 </div>
+
+                {/* قسم المتغيرات (الألوان والمقاسات) */}
+                {formData.hasVariants && formData.variantTypes.length > 0 && (
+                  <div className="variants-section">
+                    <label className="form-label">
+                      <Palette size={16} />
+                      المتغيرات المتاحة ({formData.variantTypes.length} نوع)
+                    </label>
+                    <div className="variants-card">
+                      {formData.variantTypes.map((varType, idx) => (
+                        <div key={idx} className="variant-type">
+                          <div className="variant-type-name">
+                            {varType.name} ({varType.options.length} خيار)
+                          </div>
+                          <div className="variant-options">
+                            {varType.options.map((opt, optIdx) => (
+                              <div key={optIdx} className="variant-option">
+                                {opt.image && (
+                                  <img 
+                                    src={opt.image} 
+                                    alt={opt.name}
+                                    className="variant-option-image"
+                                  />
+                                )}
+                                <span className="variant-option-name">{opt.name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      {formData.variants.length > 0 && (
+                        <div className="variants-count">
+                          إجمالي المتغيرات: {formData.variants.length} متغير
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* قسم معلومات المصدر */}
                 {(formData.supplierUrl || formData.supplierName) && (

@@ -6,8 +6,32 @@
 
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { scrapeProduct as clientScrape } from "./productScraper";
+import type { ProductVariantType, ProductVariant } from "../types";
 
 const functions = getFunctions();
+
+// متغيرات المنتج من أمازون
+export interface ScrapedVariantOption {
+  name: string;
+  value: string;
+  asin?: string;
+  image?: string;
+  selected?: boolean;
+}
+
+export interface ScrapedVariantType {
+  name: string;
+  nameEn: string;
+  options: ScrapedVariantOption[];
+}
+
+export interface ScrapedVariant {
+  asin: string;
+  options: Record<string, string>;
+  price?: number;
+  images: string[];
+  available: boolean;
+}
 
 export interface ScrapedProduct {
   name: string;
@@ -20,6 +44,48 @@ export interface ScrapedProduct {
   supplierName: string;
   supplierPrice?: number;
   specs?: Record<string, string>;
+  // حقول إضافية من أمازون
+  asin?: string;
+  brand?: string;
+  rating?: number;
+  reviewCount?: number;
+  features?: string[];
+  // المتغيرات
+  hasVariants?: boolean;
+  variantTypes?: ScrapedVariantType[];
+  variants?: ScrapedVariant[];
+}
+
+// تحويل المتغيرات من صيغة السكرابر لصيغة المتجر
+export function convertToProductVariants(scraped: ScrapedProduct): {
+  variantTypes?: ProductVariantType[];
+  variants?: ProductVariant[];
+} {
+  if (!scraped.hasVariants || !scraped.variantTypes) {
+    return {};
+  }
+
+  const variantTypes: ProductVariantType[] = scraped.variantTypes.map(vt => ({
+    name: vt.name,
+    nameEn: vt.nameEn,
+    options: vt.options.map(opt => ({
+      name: opt.name,
+      value: opt.value,
+      image: opt.image,
+    })),
+  }));
+
+  const variants: ProductVariant[] = (scraped.variants || []).map((v, index) => ({
+    id: `var_${index}_${v.asin || Date.now()}`,
+    sku: v.asin,
+    options: v.options,
+    price: v.price,
+    stock: 10, // افتراضي
+    images: v.images,
+    supplierVariantId: v.asin,
+  }));
+
+  return { variantTypes, variants };
 }
 
 /**

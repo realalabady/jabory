@@ -1,12 +1,37 @@
 /**
- * Amazon Product Scraper - Professional Edition
+ * Amazon Product Scraper - Professional Edition v2
  * سكرابر احترافي لأمازون يدعم:
  * - Amazon.sa, Amazon.ae, Amazon.com, Amazon.co.uk وغيرها
+ * - استخراج كل الصور (ليس فقط الأولى)
+ * - استخراج المتغيرات (الألوان، المقاسات، إلخ)
  * - استخراج من JavaScript embedded data
  * - Headers متقدمة تحاكي المتصفح
  * - عدة محاولات مع domains مختلفة
- * - استخدام خدمات scraping خارجية كـ fallback
  */
+
+// ==================== Interfaces ====================
+
+export interface AmazonVariantOption {
+  name: string; // "أحمر", "أزرق"
+  value: string;
+  asin?: string;
+  image?: string;
+  selected?: boolean;
+}
+
+export interface AmazonVariantType {
+  name: string; // "اللون", "المقاس"
+  nameEn: string; // "Color", "Size"
+  options: AmazonVariantOption[];
+}
+
+export interface AmazonVariant {
+  asin: string;
+  options: Record<string, string>; // { "Color": "Red", "Size": "L" }
+  price?: number;
+  images: string[];
+  available: boolean;
+}
 
 export interface AmazonProduct {
   name: string;
@@ -24,6 +49,10 @@ export interface AmazonProduct {
   reviewCount?: number;
   specs?: Record<string, string>;
   features?: string[];
+  // المتغيرات
+  hasVariants?: boolean;
+  variantTypes?: AmazonVariantType[];
+  variants?: AmazonVariant[];
 }
 
 // ==================== Helper Functions ====================
@@ -248,96 +277,354 @@ function extractPrice(html: string): { price: number; oldPrice?: number } {
 }
 
 /**
- * Extract images from multiple sources
+ * Extract ALL images from multiple sources - Enhanced version
+ * يستخرج كل الصور وليس فقط الأولى
  */
 function extractImages(html: string): string[] {
   const images: string[] = [];
   const seen = new Set<string>();
 
-  const addImage = (url: string) => {
+  const addImage = (url: string, priority = false) => {
     if (!url || url.includes("sprite") || url.includes("icon") || url.includes("transparent")) return;
+    if (url.includes("play-icon") || url.includes("video")) return;
     const fullUrl = amazonFullResUrl(url);
     if (fullUrl && !seen.has(fullUrl) && fullUrl.includes("media-amazon.com")) {
       seen.add(fullUrl);
-      images.push(fullUrl);
+      if (priority) {
+        images.unshift(fullUrl); // Add to beginning
+      } else {
+        images.push(fullUrl);
+      }
     }
   };
 
-  // 1) colorImages JSON (most reliable for galleries)
+  // 1) colorImages JSON - يحتوي على كل الصور لكل لون
   const colorImagesPatterns = [
-    /'colorImages'\s*:\s*\{[^}]*'initial'\s*:\s*(\[[\s\S]*?\])\s*\}/,
-    /"colorImages"\s*:\s*\{[^}]*"initial"\s*:\s*(\[[\s\S]*?\])\s*\}/,
+    /'colorImages'\s*:\s*(\{[\s\S]*?\})\s*,?\s*(?:'|"|\n)/,
+    /"colorImages"\s*:\s*(\{[\s\S]*?\})\s*,?\s*(?:'|"|\n)/,
   ];
   
   for (const p of colorImagesPatterns) {
     const m = html.match(p);
     if (m) {
       try {
-        const arr = JSON.parse(m[1].replace(/'/g, '"'));
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        arr.forEach((img: any) => {
-          addImage(img.hiRes || img.large || img.mainUrl || img.thumb || "");
-        });
-        if (images.length > 0) break;
-      } catch { /* continue */ }
-    }
-  }
-
-  // 2) imageGalleryData
-  if (images.length === 0) {
-    const galleryMatch = html.match(/"imageGalleryData"\s*:\s*(\[[\s\S]*?\])/);
-    if (galleryMatch) {
-      try {
-        const arr = JSON.parse(galleryMatch[1]);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        arr.forEach((img: any) => {
-          addImage(img.mainUrl || img.thumbUrl || "");
-        });
-      } catch { /* continue */ }
-    }
-  }
-
-  // 3) Main landing image
-  if (images.length === 0) {
-    const mainImgPatterns = [
-      /<img[^>]*id=["']landingImage["'][^>]*(?:src|data-old-hires|data-a-dynamic-image)=["']([^"']+)["']/i,
-      /<img[^>]*id=["']imgBlkFront["'][^>]*src=["']([^"']+)["']/i,
-      /<img[^>]*class=["'][^"']*a-dynamic-image[^"']*["'][^>]*src=["']([^"']+)["']/i,
-    ];
-    for (const p of mainImgPatterns) {
-      const m = html.match(p);
-      if (m) {
-        // Handle data-a-dynamic-image JSON
-        if (m[1].startsWith("{")) {
-          try {
-            const imgObj = JSON.parse(m[1].replace(/&quot;/g, '"'));
-            const urls = Object.keys(imgObj);
-            urls.forEach(addImage);
-          } catch { /* continue */ }
-        } else {
-          addImage(m[1]);
+        // Parse the entire colorImages object
+        const jsonStr = m[1].replace(/'/g, '"');
+        const colorObj = JSON.parse(jsonStr);
+        
+        // Get images from all color variants
+        for (const colorKey of Object.keys(colorObj)) {
+          const colorImages = colorObj[colorKey];
+          if (Array.isArray(colorImages)) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            colorImages.forEach((img: any) => {
+              // Get highest quality available
+              addImage(img.hiRes || img.large || img.mainUrl || img.thumb || "");
+            });
+          }
         }
-        if (images.length > 0) break;
+      } catch { 
+        // Try simpler pattern
+        const simpleMatch = html.match(/'initial'\s*:\s*(\[[\s\S]*?\])/);
+        if (simpleMatch) {
+          try {
+            const arr = JSON.parse(simpleMatch[1].replace(/'/g, '"'));
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            arr.forEach((img: any) => {
+              addImage(img.hiRes || img.large || img.mainUrl || img.thumb || "");
+            });
+          } catch { /* continue */ }
+        }
       }
     }
   }
 
-  // 4) Search for all Amazon CDN images
-  if (images.length === 0) {
-    const cdnRegex = /["'](https?:\/\/m\.media-amazon\.com\/images\/I\/[A-Za-z0-9+_.-]+\.(?:jpg|jpeg|png|webp))["']/gi;
-    let m;
-    while ((m = cdnRegex.exec(html)) !== null && images.length < 10) {
-      addImage(m[1]);
+  // 2) imageGalleryData - fallback
+  const galleryMatch = html.match(/"imageGalleryData"\s*:\s*(\[[\s\S]*?\])/);
+  if (galleryMatch) {
+    try {
+      const arr = JSON.parse(galleryMatch[1]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      arr.forEach((img: any) => {
+        addImage(img.mainUrl || img.thumbUrl || "");
+      });
+    } catch { /* continue */ }
+  }
+
+  // 3) altImages in variationValues
+  const altImagesMatch = html.match(/"altImages"\s*:\s*(\[[\s\S]*?\])/g);
+  if (altImagesMatch) {
+    for (const match of altImagesMatch) {
+      try {
+        const arrayMatch = match.match(/:\s*(\[[\s\S]*?\])/);
+        if (arrayMatch) {
+          const arr = JSON.parse(arrayMatch[1]);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          arr.forEach((img: any) => {
+            if (typeof img === 'string') addImage(img);
+            else addImage(img.hiRes || img.large || img.url || "");
+          });
+        }
+      } catch { /* continue */ }
     }
   }
 
-  // 5) OG image fallback
-  if (images.length === 0) {
-    const ogMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
-    if (ogMatch) addImage(ogMatch[1]);
+  // 4) Main landing image
+  const mainImgPatterns = [
+    /<img[^>]*id=["']landingImage["'][^>]*(?:src|data-old-hires|data-a-dynamic-image)=["']([^"']+)["']/i,
+    /<img[^>]*id=["']imgBlkFront["'][^>]*src=["']([^"']+)["']/i,
+    /<img[^>]*class=["'][^"']*a-dynamic-image[^"']*["'][^>]*src=["']([^"']+)["']/i,
+  ];
+  for (const p of mainImgPatterns) {
+    const m = html.match(p);
+    if (m) {
+      // Handle data-a-dynamic-image JSON
+      if (m[1].startsWith("{")) {
+        try {
+          const imgObj = JSON.parse(m[1].replace(/&quot;/g, '"'));
+          const urls = Object.keys(imgObj);
+          urls.forEach(u => addImage(u, true)); // Priority for main image
+        } catch { /* continue */ }
+      } else {
+        addImage(m[1], true);
+      }
+    }
   }
 
-  return images.slice(0, 10);
+  // 5) All Amazon CDN images in the page
+  const cdnRegex = /["'](https?:\/\/m\.media-amazon\.com\/images\/I\/[A-Za-z0-9+_.-]+\.(?:jpg|jpeg|png|webp))["']/gi;
+  let m;
+  while ((m = cdnRegex.exec(html)) !== null) {
+    addImage(m[1]);
+  }
+
+  // 6) OG image fallback
+  const ogMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
+  if (ogMatch) addImage(ogMatch[1]);
+
+  // Remove duplicates and limit to 20 images
+  return [...new Set(images)].slice(0, 20);
+}
+
+/**
+ * Extract product variants (colors, sizes, etc.)
+ * استخراج المتغيرات مثل الألوان والمقاسات
+ */
+function extractVariants(html: string): { 
+  variantTypes: AmazonVariantType[]; 
+  variants: AmazonVariant[]; 
+  hasVariants: boolean;
+} {
+  const variantTypes: AmazonVariantType[] = [];
+  const variants: AmazonVariant[] = [];
+  const variantImagesMap: Record<string, string[]> = {}; // ASIN -> images
+
+  // 1) Try to extract from twister data (most complete)
+  const twisterDataPatterns = [
+    /'dimensionValuesDisplayData'\s*:\s*(\{[\s\S]*?\})\s*,\s*'/,
+    /"dimensionValuesDisplayData"\s*:\s*(\{[\s\S]*?\})\s*,/,
+  ];
+
+  for (const p of twisterDataPatterns) {
+    const m = html.match(p);
+    if (m) {
+      try {
+        const jsonStr = m[1].replace(/'/g, '"');
+        const dimData = JSON.parse(jsonStr);
+        
+        // dimData is like { "B0XXX": ["Red", "Large"], "B0YYY": ["Blue", "Medium"] }
+        for (const [asin, values] of Object.entries(dimData)) {
+          if (Array.isArray(values) && values.length > 0) {
+            variants.push({
+              asin,
+              options: {},
+              images: variantImagesMap[asin] || [],
+              available: true,
+            });
+          }
+        }
+      } catch { /* continue */ }
+    }
+  }
+
+  // 2) Extract variation dimensions (what types of variants exist)
+  const variationsMatch = html.match(/data-a-state=["'][^"']*twister[-_]state[^"']*["'][^>]*>[\s\S]*?({[\s\S]*?})/);
+  if (variationsMatch) {
+    try {
+      const twisterState = JSON.parse(variationsMatch[1]);
+      if (twisterState.dimensions) {
+        for (const dim of twisterState.dimensions) {
+          const options: AmazonVariantOption[] = [];
+          if (dim.values) {
+            for (const val of dim.values) {
+              options.push({
+                name: val.value || val,
+                value: val.value || val,
+                asin: val.asin,
+                image: val.image,
+                selected: val.selected,
+              });
+            }
+          }
+          if (options.length > 0) {
+            variantTypes.push({
+              name: translateDimensionName(dim.label || dim.name),
+              nameEn: dim.label || dim.name || "",
+              options,
+            });
+          }
+        }
+      }
+    } catch { /* continue */ }
+  }
+
+  // 3) Extract from ul#variation_color_name, ul#variation_size_name, etc.
+  const variationSections = html.matchAll(/<ul[^>]*id=["']variation_([^"']+)["'][^>]*>([\s\S]*?)<\/ul>/gi);
+  for (const section of variationSections) {
+    const dimensionName = section[1]; // e.g., "color_name", "size_name"
+    const sectionHtml = section[2];
+    
+    const options: AmazonVariantOption[] = [];
+    
+    // Extract each option (li elements)
+    const liMatches = sectionHtml.matchAll(/<li[^>]*data-defaultasin=["']([^"']+)["'][^>]*>[\s\S]*?(?:title=["']([^"']+)["']|alt=["']([^"']+)["'])/gi);
+    for (const li of liMatches) {
+      const asin = li[1];
+      const name = li[2] || li[3] || "";
+      
+      // Try to get image for this option
+      const imgMatch = sectionHtml.match(new RegExp(`data-defaultasin=["']${asin}["'][^>]*>[\\s\\S]*?<img[^>]*src=["']([^"']+)["']`, 'i'));
+      
+      options.push({
+        name: cleanText(name),
+        value: cleanText(name),
+        asin,
+        image: imgMatch ? amazonFullResUrl(imgMatch[1]) : undefined,
+      });
+    }
+    
+    if (options.length > 0) {
+      variantTypes.push({
+        name: translateDimensionName(dimensionName),
+        nameEn: dimensionName.replace(/_/g, " "),
+        options,
+      });
+    }
+  }
+
+  // 4) Extract from swatches
+  const swatchPatterns = [
+    /<div[^>]*id=["']variation_([^"']+)["'][^>]*>[\s\S]*?<ul[^>]*class=["'][^"']*swatches[^"']*["'][^>]*>([\s\S]*?)<\/ul>/gi,
+  ];
+  
+  for (const pattern of swatchPatterns) {
+    const matches = html.matchAll(pattern);
+    for (const match of matches) {
+      const dimensionName = match[1];
+      const swatchesHtml = match[2];
+      
+      // Skip if we already have this dimension
+      if (variantTypes.some(vt => vt.nameEn.includes(dimensionName))) continue;
+      
+      const options: AmazonVariantOption[] = [];
+      const liMatches = swatchesHtml.matchAll(/<li[^>]*>[\s\S]*?<img[^>]*(?:src|data-src)=["']([^"']+)["'][^>]*(?:alt|title)=["']([^"']+)["']/gi);
+      
+      for (const li of liMatches) {
+        options.push({
+          name: cleanText(li[2]),
+          value: cleanText(li[2]),
+          image: amazonFullResUrl(li[1]),
+        });
+      }
+      
+      if (options.length > 0) {
+        variantTypes.push({
+          name: translateDimensionName(dimensionName),
+          nameEn: dimensionName.replace(/_/g, " "),
+          options,
+        });
+      }
+    }
+  }
+
+  // 5) Extract variant images mapping
+  const colorToAsinMatch = html.match(/'colorToAsin'\s*:\s*(\{[\s\S]*?\})\s*,/);
+  if (colorToAsinMatch) {
+    try {
+      const colorToAsin = JSON.parse(colorToAsinMatch[1].replace(/'/g, '"'));
+      // colorToAsin is like { "Red": { "asin": "B0XXX" }, "Blue": { "asin": "B0YYY" } }
+      for (const [colorName, data] of Object.entries(colorToAsin)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const asin = (data as any).asin;
+        if (asin) {
+          // Find images for this variant
+          const colorImagesMatch = html.match(new RegExp(`'${colorName}'\\s*:\\s*(\\[[\\s\\S]*?\\])`, 'i'));
+          if (colorImagesMatch) {
+            try {
+              const imgs = JSON.parse(colorImagesMatch[1].replace(/'/g, '"'));
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              variantImagesMap[asin] = imgs.map((img: any) => 
+                amazonFullResUrl(img.hiRes || img.large || img.thumb || "")
+              ).filter(Boolean);
+            } catch { /* continue */ }
+          }
+          
+          // Update or add variant
+          const existingVariant = variants.find(v => v.asin === asin);
+          if (existingVariant) {
+            existingVariant.options["Color"] = colorName;
+            if (variantImagesMap[asin]) {
+              existingVariant.images = variantImagesMap[asin];
+            }
+          } else {
+            variants.push({
+              asin,
+              options: { "Color": colorName },
+              images: variantImagesMap[asin] || [],
+              available: true,
+            });
+          }
+        }
+      }
+    } catch { /* continue */ }
+  }
+
+  return {
+    variantTypes,
+    variants,
+    hasVariants: variantTypes.length > 0 || variants.length > 0,
+  };
+}
+
+/**
+ * Translate dimension names to Arabic
+ */
+function translateDimensionName(name: string): string {
+  const translations: Record<string, string> = {
+    "color": "اللون",
+    "color_name": "اللون",
+    "colour": "اللون",
+    "size": "المقاس",
+    "size_name": "المقاس",
+    "style": "الستايل",
+    "style_name": "الستايل",
+    "pattern": "النمط",
+    "pattern_name": "النمط",
+    "material": "المادة",
+    "material_type": "المادة",
+    "capacity": "السعة",
+    "storage": "السعة التخزينية",
+    "configuration": "الإعداد",
+    "model": "الموديل",
+    "edition": "الإصدار",
+    "flavor": "النكهة",
+    "scent": "العطر",
+    "item_package_quantity": "عدد القطع",
+    "number_of_items": "عدد القطع",
+  };
+  
+  const lowerName = name.toLowerCase().replace(/_/g, " ").trim();
+  return translations[lowerName] || translations[name.toLowerCase()] || name;
 }
 
 /**
@@ -569,7 +856,7 @@ async function fetchAmazonPage(url: string): Promise<string> {
  */
 export async function scrapeAmazonProduct(url: string): Promise<AmazonProduct> {
   const asin = extractAsin(url);
-  const { domain, region, currency } = detectAmazonDomain(url);
+  const { domain, region } = detectAmazonDomain(url);
   
   console.log(`[Amazon Scraper] Starting scrape for ASIN: ${asin}, Domain: ${domain}`);
 
@@ -584,6 +871,9 @@ export async function scrapeAmazonProduct(url: string): Promise<AmazonProduct> {
   const brand = extractBrand(html);
   const { rating, reviewCount } = extractRating(html);
   const specs = extractSpecs(html);
+  
+  // Extract variants (colors, sizes, etc.)
+  const { variantTypes, variants, hasVariants } = extractVariants(html);
 
   console.log(`[Amazon Scraper] Extracted:`, {
     title: title?.substring(0, 50),
@@ -591,6 +881,9 @@ export async function scrapeAmazonProduct(url: string): Promise<AmazonProduct> {
     images: images.length,
     brand,
     features: features.length,
+    hasVariants,
+    variantTypes: variantTypes.length,
+    variants: variants.length,
   });
 
   // Validate minimum data
@@ -623,6 +916,10 @@ export async function scrapeAmazonProduct(url: string): Promise<AmazonProduct> {
     reviewCount,
     specs: Object.keys(specs).length > 0 ? specs : undefined,
     features: features.length > 0 ? features : undefined,
+    // المتغيرات
+    hasVariants,
+    variantTypes: variantTypes.length > 0 ? variantTypes : undefined,
+    variants: variants.length > 0 ? variants : undefined,
   };
 }
 
@@ -657,6 +954,7 @@ export async function scrapeAmazonWithApi(url: string, apiKey?: string): Promise
     const brand = extractBrand(html);
     const { rating, reviewCount } = extractRating(html);
     const specs = extractSpecs(html);
+    const { variantTypes, variants, hasVariants } = extractVariants(html);
 
     const asin = extractAsin(url);
     const { domain } = detectAmazonDomain(url);
@@ -677,6 +975,9 @@ export async function scrapeAmazonWithApi(url: string, apiKey?: string): Promise
       reviewCount,
       specs: Object.keys(specs).length > 0 ? specs : undefined,
       features: features.length > 0 ? features : undefined,
+      hasVariants,
+      variantTypes: variantTypes.length > 0 ? variantTypes : undefined,
+      variants: variants.length > 0 ? variants : undefined,
     };
   } catch (error) {
     console.log(`[Amazon Scraper] ScraperAPI failed, falling back to direct:`, error);
