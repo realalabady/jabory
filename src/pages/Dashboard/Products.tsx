@@ -12,6 +12,7 @@ import {
   X,
   Loader,
   Link2,
+  ExternalLink,
 } from "lucide-react";
 import { useStore } from "../../store/useStore";
 import {
@@ -20,7 +21,7 @@ import {
   deleteProduct as deleteProductFromFirestore,
 } from "../../services/firestore";
 import { uploadImages } from "../../services/storage";
-import { scrapeProduct } from "../../services/productScraper";
+import { scrapeProductByUrl } from "../../services/scraperService";
 import type { Product } from "../../types";
 import "./Products.css";
 
@@ -42,6 +43,9 @@ const Products: React.FC = () => {
     stock: "",
     featured: false,
     images: [] as string[],
+    supplierUrl: "",
+    supplierName: "",
+    supplierPrice: "",
   });
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -84,6 +88,9 @@ const Products: React.FC = () => {
         stock: product.stock.toString(),
         featured: product.featured,
         images: product.images,
+        supplierUrl: product.supplierUrl || "",
+        supplierName: product.supplierName || "",
+        supplierPrice: product.supplierPrice?.toString() || "",
       });
     } else {
       setEditingProduct(null);
@@ -98,6 +105,9 @@ const Products: React.FC = () => {
         stock: "",
         featured: false,
         images: [],
+        supplierUrl: "",
+        supplierName: "",
+        supplierPrice: "",
       });
     }
     setShowModal(true);
@@ -171,6 +181,9 @@ const Products: React.FC = () => {
           : ["https://via.placeholder.com/300"],
         stock: parseInt(formData.stock),
         featured: formData.featured,
+        supplierUrl: formData.supplierUrl || undefined,
+        supplierName: formData.supplierName || undefined,
+        supplierPrice: formData.supplierPrice ? parseFloat(formData.supplierPrice) : undefined,
         createdAt: editingProduct?.createdAt || new Date(),
         updatedAt: new Date(),
       };
@@ -313,7 +326,7 @@ const Products: React.FC = () => {
     if (!productUrl.trim()) return;
     setUrlLoading(true);
     try {
-      const scraped = await scrapeProduct(productUrl.trim());
+      const scraped = await scrapeProductByUrl(productUrl.trim());
       // تعبئة نموذج المنتج بالبيانات المجلوبة
       setFormData({
         name: scraped.name || "",
@@ -325,6 +338,9 @@ const Products: React.FC = () => {
         stock: "10",
         featured: false,
         images: scraped.images || [],
+        supplierUrl: scraped.supplierUrl || "",
+        supplierName: scraped.supplierName || "",
+        supplierPrice: scraped.supplierPrice ? scraped.supplierPrice.toString() : "",
       });
       setEditingProduct(null);
       setPendingFiles([]);
@@ -347,7 +363,7 @@ const Products: React.FC = () => {
     if (!productUrl.trim()) return;
     setUrlLoading(true);
     try {
-      const scraped = await scrapeProduct(productUrl.trim());
+      const scraped = await scrapeProductByUrl(productUrl.trim());
       if (!scraped.name || !scraped.price) {
         // إذا البيانات ناقصة، افتح النموذج للمراجعة
         setFormData({
@@ -360,6 +376,9 @@ const Products: React.FC = () => {
           stock: "10",
           featured: false,
           images: scraped.images || [],
+          supplierUrl: scraped.supplierUrl || "",
+          supplierName: scraped.supplierName || "",
+          supplierPrice: scraped.supplierPrice ? scraped.supplierPrice.toString() : "",
         });
         setEditingProduct(null);
         setPendingFiles([]);
@@ -549,6 +568,24 @@ const Products: React.FC = () => {
                       <div>
                         <span className="product-name">{product.name}</span>
                         <span className="product-id">#{product.id}</span>
+                        {product.supplierName && (
+                          <div className="product-source">
+                            <span className="source-badge">
+                              {product.supplierName}
+                            </span>
+                            {product.supplierUrl && (
+                              <a
+                                href={product.supplierUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="source-link"
+                                title="فتح الرابط الأصلي"
+                              >
+                                <ExternalLink size={12} />
+                              </a>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -813,6 +850,41 @@ const Products: React.FC = () => {
                     )}
                   </div>
                 </div>
+
+                {/* قسم معلومات المصدر */}
+                {(formData.supplierUrl || formData.supplierName) && (
+                  <div className="supplier-info-section">
+                    <label className="form-label">معلومات المصدر</label>
+                    <div className="supplier-info-card">
+                      {formData.supplierName && (
+                        <div className="supplier-row">
+                          <span className="supplier-label">الموقع:</span>
+                          <span className="supplier-value">{formData.supplierName}</span>
+                        </div>
+                      )}
+                      {formData.supplierPrice && (
+                        <div className="supplier-row">
+                          <span className="supplier-label">سعر المورد:</span>
+                          <span className="supplier-value">{formData.supplierPrice}</span>
+                        </div>
+                      )}
+                      {formData.supplierUrl && (
+                        <div className="supplier-row">
+                          <span className="supplier-label">الرابط:</span>
+                          <a
+                            href={formData.supplierUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="supplier-link"
+                          >
+                            <ExternalLink size={14} />
+                            فتح الرابط الأصلي
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="modal-footer">

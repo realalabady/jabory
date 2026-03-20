@@ -911,6 +911,31 @@ function parseAmazon(html: string, url: string): ScrapedProduct {
 
   console.log("[Scraper] Parsing Amazon HTML, length:", html.length);
 
+  // Detect Amazon regional domain first
+  let amazonCurrency = "USD";
+  try {
+    const domain = new URL(url).hostname;
+    if (domain.includes(".sa")) {
+      product.supplierName = "Amazon.sa";
+      amazonCurrency = "SAR";
+    } else if (domain.includes(".ae")) {
+      product.supplierName = "Amazon.ae";
+      amazonCurrency = "AED";
+    } else if (domain.includes(".co.uk")) {
+      product.supplierName = "Amazon.co.uk";
+      amazonCurrency = "GBP";
+    } else if (domain.includes(".de")) {
+      product.supplierName = "Amazon.de";
+      amazonCurrency = "EUR";
+    } else if (domain.includes(".eg")) {
+      product.supplierName = "Amazon.eg";
+      amazonCurrency = "EGP";
+    }
+  } catch {
+    /* keep default */
+  }
+  console.log("[Scraper] Amazon region:", product.supplierName, "Currency:", amazonCurrency);
+
   // 1) JSON-LD structured data
   const jsonLd = findProductInJsonLd(parseJsonLd(html));
   if (jsonLd) {
@@ -933,18 +958,35 @@ function parseAmazon(html: string, url: string): ScrapedProduct {
     }
   }
 
-  // 2) Product title from <span id="productTitle">
+  // 2) Product title from multiple patterns
   if (!product.nameEn) {
     const titlePatterns = [
+      // Standard product title span
       /<span[^>]*id=["']productTitle["'][^>]*>\s*([^<]+)/i,
+      // Title inside h1
       /<h1[^>]*id=["']title["'][^>]*>[\s\S]*?<span[^>]*>\s*([^<]+)/i,
+      // Title wrapper div
+      /<div[^>]*id=["']titleSection["'][^>]*>[\s\S]*?<span[^>]*>\s*([^<]+)/i,
+      // Title in centerCol
+      /<div[^>]*id=["']centerCol["'][^>]*>[\s\S]*?<span[^>]*id=["']productTitle["'][^>]*>\s*([^<]+)/i,
+      // Desktop title
+      /<span[^>]*class=["'][^"']*product-title[^"']*["'][^>]*>\s*([^<]+)/i,
+      // Mobile title
+      /<h1[^>]*class=["'][^"']*a-size-large[^"']*["'][^>]*>\s*([^<]+)/i,
+      // JSON data pattern
       /"title"\s*:\s*"([^"]{10,300})"/,
+      // Arabic title pattern for Amazon.sa
+      /<span[^>]*data-hook=["']product-title["'][^>]*>\s*([^<]+)/i,
     ];
     for (const p of titlePatterns) {
       const m = html.match(p);
       if (m) {
-        product.nameEn = decodeHtmlEntities(m[1].trim());
-        break;
+        const title = decodeHtmlEntities(m[1].trim());
+        if (title && title.length > 5) {
+          product.nameEn = title;
+          console.log("[Scraper] Amazon: Found title:", title.substring(0, 50));
+          break;
+        }
       }
     }
   }
@@ -952,20 +994,49 @@ function parseAmazon(html: string, url: string): ScrapedProduct {
   // 3) Price extraction — Amazon uses many patterns
   if (!product.price) {
     const pricePatterns = [
+      // Apex price (main price display)
+      /class=["']apexPriceToPay["'][^>]*>[\s\S]*?<span[^>]*class=["']a-offscreen["'][^>]*>([^<]+)/i,
+      // Price amount from data
       /"priceAmount"\s*:\s*"?([\d,.]+)"?/,
+      // Core price
+      /class=["']a-price[^"']*["'][^>]*>[\s\S]*?<span[^>]*class=["']a-offscreen["'][^>]*>([^<]+)/i,
+      // Price whole + fraction
+      /class=["']a-price-whole["'][^>]*>([\d,]+)[\s\S]*?class=["']a-price-fraction["'][^>]*>(\d+)/i,
+      // Deal price
+      /id=["']priceblock_dealprice["'][^>]*>([^<]+)/i,
+      // Our price
+      /id=["']priceblock_ourprice["'][^>]*>([^<]+)/i,
+      // Sale price
+      /id=["']priceblock_saleprice["'][^>]*>([^<]+)/i,
+      // Kindle/digital price
+      /id=["']kindle-price["'][^>]*>([^<]+)/i,
+      // Buy box price
+      /"buyingPrice"\s*:\s*"?([^"]+)"?/,
+      // Mobile price
+      /id=["']corePrice_feature_div["'][^>]*>[\s\S]*?<span[^>]*class=["']a-offscreen["'][^>]*>([^<]+)/i,
+      // SNS price
+      /id=["']sns-base-price["'][^>]*>([^<]+)/i,
+      // Price in JSON
       /"price"\s*:\s*"?([\d,.]+)"?\s*[,}]/,
-      /class=["']a-price-whole["'][^>]*>([\d,]+)/,
-      /id=["']priceblock_(?:dealprice|ourprice|saleprice)["'][^>]*>[^<]*?([\d,.]+)/i,
-      /class=["']apexPriceToPay["'][^>]*>[\s\S]*?<span[^>]*>([\d,.]+)/i,
-      /class=["']a-offscreen["'][^>]*>([\d,.]+)/,
+      // Currency with price
+      /(?:SAR|AED|USD|EUR|GBP|EGP)\s*([\d,.]+)/,
+      /(?:ر\.س|د\.إ|جنيه|ج\.م)\s*([\d,.]+)/i,
+      // Price with currency symbol
+      />([\d,.]+)\s*(?:SAR|AED|ر\.س|د\.إ)</i,
     ];
     for (const p of pricePatterns) {
       const m = html.match(p);
       if (m) {
-        const val = parseFloat(m[1].replace(/,/g, ""));
+        // Handle price whole + fraction pattern
+        let priceStr = m[1];
+        if (m[2]) priceStr = m[1] + "." + m[2];
+        // Extract numbers from price string (handles "SAR 199.00" etc)
+        const numMatch = priceStr.replace(/[^\d.,]/g, "").replace(/,/g, "");
+        const val = parseFloat(numMatch);
         if (val > 0) {
           product.price = val;
           product.supplierPrice = val;
+          console.log("[Scraper] Amazon: Found price:", val);
           break;
         }
       }
@@ -975,16 +1046,21 @@ function parseAmazon(html: string, url: string): ScrapedProduct {
   // Old / list price
   if (product.price && !product.oldPrice) {
     const oldPricePatterns = [
-      /class=["']a-text-price["'][^>]*>[\s\S]*?<span[^>]*>([\d,.]+)/i,
-      /id=["']listPrice["'][^>]*>([\d,.]+)/i,
-      /"listPrice"\s*:\s*"?([\d,.]+)"?/,
+      /class=["']a-text-price["'][^>]*>[\s\S]*?<span[^>]*class=["']a-offscreen["'][^>]*>([^<]+)/i,
+      /class=["']basisPrice["'][^>]*>[\s\S]*?<span[^>]*class=["']a-offscreen["'][^>]*>([^<]+)/i,
+      /id=["']listPrice["'][^>]*>([^<]+)/i,
+      /"listPrice"\s*:\s*"?([^"]+)"?/,
+      /class=["']a-text-strike["'][^>]*>([^<]+)/i,
+      /"was"\s*:\s*"?([^"]+)"?/,
     ];
     for (const p of oldPricePatterns) {
       const m = html.match(p);
       if (m) {
-        const val = parseFloat(m[1].replace(/,/g, ""));
+        const numMatch = m[1].replace(/[^\d.,]/g, "").replace(/,/g, "");
+        const val = parseFloat(numMatch);
         if (val > product.price) {
           product.oldPrice = val;
+          console.log("[Scraper] Amazon: Found old price:", val);
           break;
         }
       }
@@ -997,6 +1073,7 @@ function parseAmazon(html: string, url: string): ScrapedProduct {
       /'colorImages':\s*\{[^}]*'initial'\s*:\s*(\[[\s\S]*?\])\s*\}/,
       /"colorImages"\s*:\s*\{[^}]*"initial"\s*:\s*(\[[\s\S]*?\])\s*\}/,
       /"imageGalleryData"\s*:\s*(\[[\s\S]*?\])/,
+      /"images"\s*:\s*(\[[\s\S]*?"mainUrl"[\s\S]*?\])/,
     ];
     for (const p of imgPatterns) {
       const m = html.match(p);
@@ -1006,17 +1083,39 @@ function parseAmazon(html: string, url: string): ScrapedProduct {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const urls = arr
             .map((i: any) => {
-              // Prefer hiRes (full quality), then large, then thumb
-              const raw = i.hiRes || i.large || i.thumb || "";
+              // Prefer hiRes (full quality), then large, then mainUrl, then thumb
+              const raw = i.hiRes || i.large || i.mainUrl || i.thumb || "";
               return amazonFullResUrl(raw);
             })
             .filter(Boolean);
           if (urls.length > 0) {
             product.images = urls.slice(0, 10);
+            console.log("[Scraper] Amazon: Found", urls.length, "images from JSON");
             break;
           }
         } catch {
           /* continue */
+        }
+      }
+    }
+  }
+
+  // Fallback: landingImage or main product image
+  if (product.images.length === 0) {
+    const mainImgPatterns = [
+      /<img[^>]*id=["']landingImage["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*id=["']imgBlkFront["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*class=["'][^"']*a-dynamic-image[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*data-old-hires=["']([^"']+)["']/i,
+    ];
+    for (const p of mainImgPatterns) {
+      const m = html.match(p);
+      if (m) {
+        const imgUrl = amazonFullResUrl(m[1]);
+        if (imgUrl) {
+          product.images.push(imgUrl);
+          console.log("[Scraper] Amazon: Found main image");
+          break;
         }
       }
     }
@@ -1035,6 +1134,9 @@ function parseAmazon(html: string, url: string): ScrapedProduct {
         product.images.push(imgUrl);
       }
       if (product.images.length >= 10) break;
+    }
+    if (product.images.length > 0) {
+      console.log("[Scraper] Amazon: Found", product.images.length, "images from CDN regex");
     }
   }
 
@@ -1064,21 +1166,23 @@ function parseAmazon(html: string, url: string): ScrapedProduct {
     }
   }
 
-  // Detect Amazon regional domain
-  try {
-    const domain = new URL(url).hostname;
-    if (domain.includes(".sa")) product.supplierName = "Amazon.sa";
-    else if (domain.includes(".ae")) product.supplierName = "Amazon.ae";
-    else if (domain.includes(".co.uk")) product.supplierName = "Amazon.co.uk";
-    else if (domain.includes(".de")) product.supplierName = "Amazon.de";
-  } catch {
-    /* keep default */
+  // 7) Description from productDescription div
+  if (!product.description) {
+    const descMatch = html.match(
+      /<div[^>]*id=["']productDescription["'][^>]*>[\s\S]*?<p[^>]*>([\s\S]*?)<\/p>/i,
+    );
+    if (descMatch) {
+      product.description = decodeHtmlEntities(
+        descMatch[1].replace(/<[^>]+>/g, "").trim()
+      );
+    }
   }
 
   // Title tag fallback
   if (!product.nameEn) {
     const t = getTitleFromHtml(html)
       .replace(/\s*[-:|]\s*Amazon.*$/i, "")
+      .replace(/\s*\|.*$/i, "")
       .trim();
     if (t) product.nameEn = t;
   }
@@ -1089,6 +1193,7 @@ function parseAmazon(html: string, url: string): ScrapedProduct {
     name: product.name?.substring(0, 50),
     price: product.price,
     images: product.images.length,
+    supplier: product.supplierName,
   });
 
   return product;
