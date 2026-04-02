@@ -231,6 +231,17 @@ export const updateOrderStatus = async (
   });
 };
 
+export const updateOrderData = async (
+  id: string,
+  data: Partial<FirestoreOrder>,
+): Promise<void> => {
+  const docRef = doc(db, "orders", id);
+  await updateDoc(docRef, {
+    ...data,
+    updatedAt: Timestamp.now(),
+  });
+};
+
 export const subscribeToOrders = (
   callback: (orders: FirestoreOrder[]) => void,
 ) => {
@@ -351,38 +362,72 @@ export const subscribeToUsers = (callback: (users: User[]) => void) => {
 export const getUserOrders = async (
   userId: string,
 ): Promise<FirestoreOrder[]> => {
-  const q = query(
-    ordersCollection,
-    where("userId", "==", userId),
-    orderBy("createdAt", "desc"),
-  );
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((doc) => ({
-    id: doc.id,
-    ...doc.data(),
-    createdAt: doc.data().createdAt?.toDate() || new Date(),
-    updatedAt: doc.data().updatedAt?.toDate() || new Date(),
-  })) as FirestoreOrder[];
+  try {
+    // محاولة الاستعلام مع الترتيب (يحتاج فهرس مركب)
+    const q = query(
+      ordersCollection,
+      where("userId", "==", userId),
+      orderBy("createdAt", "desc"),
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate() || new Date(),
+      updatedAt: doc.data().updatedAt?.toDate() || new Date(),
+    })) as FirestoreOrder[];
+  } catch (error: any) {
+    // إذا فشل بسبب عدم وجود الفهرس، نستخدم استعلام بدون ترتيب
+    console.warn("getUserOrders: Falling back to unordered query", error.message);
+    if (error.code === "failed-precondition" || error.message?.includes("index")) {
+      const q = query(
+        ordersCollection,
+        where("userId", "==", userId),
+      );
+      const snapshot = await getDocs(q);
+      const orders = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate() || new Date(),
+        updatedAt: doc.data().updatedAt?.toDate() || new Date(),
+      })) as FirestoreOrder[];
+      // ترتيب يدوياً
+      return orders.sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+    }
+    throw error;
+  }
 };
 
 export const subscribeToUserOrders = (
   userId: string,
   callback: (orders: FirestoreOrder[]) => void,
+  onError?: (error: Error) => void,
 ) => {
   const q = query(
     ordersCollection,
     where("userId", "==", userId),
     orderBy("createdAt", "desc"),
   );
-  return onSnapshot(q, (snapshot) => {
-    const orders = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate() || new Date(),
-      updatedAt: doc.data().updatedAt?.toDate() || new Date(),
-    })) as FirestoreOrder[];
-    callback(orders);
-  });
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const orders = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate() || new Date(),
+        updatedAt: doc.data().updatedAt?.toDate() || new Date(),
+      })) as FirestoreOrder[];
+      callback(orders);
+    },
+    (error) => {
+      console.error("subscribeToUserOrders error:", error);
+      if (onError) {
+        onError(error);
+      }
+    }
+  );
 };
 
 // ==================== Settings ====================
@@ -411,6 +456,14 @@ export interface StoreSettings {
   };
   payment?: {
     methods: { id: string; name: string; enabled: boolean }[];
+  };
+  email?: {
+    smtpHost: string;
+    smtpPort: number;
+    smtpUser: string;
+    smtpPassword: string;
+    fromEmail: string;
+    fromName: string;
   };
   updatedAt?: Date;
 }

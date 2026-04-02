@@ -335,6 +335,124 @@
   width: auto;
 }
 
+/* Tabby Payment */
+.tabby-details {
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  background: linear-gradient(145deg, #f0fdf9 0%, #e6faf4 50%, #d9f7ec 100%);
+  border-radius: 16px;
+  border: 2px solid #1dd1a1;
+  box-shadow: 0 4px 20px rgba(29, 209, 161, 0.15);
+}
+
+.tabby-info {
+  text-align: center;
+}
+
+.tabby-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.tabby-logo {
+  height: 50px;
+  width: auto;
+  margin-bottom: 1rem;
+}
+
+.tabby-details h4 {
+  margin-bottom: 1rem;
+  color: #2d3436;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.tabby-installments {
+  display: flex;
+  justify-content: center;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+  flex-wrap: wrap;
+}
+
+.tabby-installments .installment {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: white;
+  border-radius: 12px;
+  min-width: 85px;
+  box-shadow: 0 3px 10px rgba(29, 209, 161, 0.12);
+  border: 1px solid rgba(29, 209, 161, 0.2);
+  transition: all 0.3s ease;
+}
+
+.tabby-installments .installment:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(29, 209, 161, 0.2);
+}
+
+.tabby-installments .label {
+  font-size: 0.75rem;
+  color: #636e72;
+  margin-bottom: 0.3rem;
+  font-weight: 500;
+}
+
+.tabby-installments .amount {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1dd1a1;
+}
+
+.tabby-note {
+  font-size: 0.85rem;
+  color: #636e72;
+  margin-bottom: 1rem;
+  padding: 0.5rem 1rem;
+  background: rgba(29, 209, 161, 0.08);
+  border-radius: 8px;
+  display: inline-block;
+}
+
+.btn-tabby {
+  width: 100%;
+  padding: 1rem 1.5rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #1dd1a1 0%, #00b894 100%);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(29, 209, 161, 0.3);
+}
+
+.btn-tabby:hover:not(:disabled) {
+  background: linear-gradient(135deg, #00b894 0%, #00a085 100%);
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(29, 209, 161, 0.4);
+}
+
+.btn-tabby:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.tabby-badge {
+  height: 24px;
+  width: auto;
+}
+
 /* Payment Success Badge */
 .payment-success-badge {
   display: flex;
@@ -609,6 +727,16 @@
     flex-direction: row;
     justify-content: space-between;
     padding: 0.75rem;
+  }
+
+  /* Tabby Mobile */
+  .tabby-details {
+    padding: 1rem;
+  }
+  
+  .tabby-installments {
+    flex-direction: column;
+    gap: 0.5rem;
   }
   
   .payment-success-badge {

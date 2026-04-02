@@ -384,6 +384,41 @@
   color: var(--primary);
 }
 
+/* Order Tracking */
+.order-tracking {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: linear-gradient(135deg, #ede9fe 0%, #e0e7ff 100%);
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+  color: #6b21a8;
+}
+
+.order-tracking svg {
+  color: #8b5cf6;
+}
+
+.order-tracking strong {
+  color: #4c1d95;
+  margin-inline-end: auto;
+}
+
+.tracking-link {
+  background: #8b5cf6;
+  color: white;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.tracking-link:hover {
+  background: #7c3aed;
+}
+
 .order-footer {
   display: flex;
   justify-content: space-between;

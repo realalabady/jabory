@@ -18,6 +18,7 @@ import {
   decrementStock,
 } from "../../services/firestore";
 import { createTamaraCheckout, authorizeTamaraOrder } from "../../services/tamara";
+import { createTabbyCheckout, captureTabbyPayment } from "../../services/tabby";
 import Header from "../../components/Header/Header";
 import Footer from "../../components/Footer/Footer";
 import PayPalCardForm from "../../components/PayPalCardForm/PayPalCardForm";
@@ -45,6 +46,8 @@ const Checkout: React.FC = () => {
   const [orderPlaced, setOrderPlaced] = useState(false);
   const [tamaraProcessing, setTamaraProcessing] = useState(false);
   const [paidWithTamara, setPaidWithTamara] = useState(false);
+  const [tabbyProcessing, setTabbyProcessing] = useState(false);
+  const [paidWithTabby, setPaidWithTabby] = useState(false);
   const [shippingSettings, setShippingSettings] = useState<ShippingSettings>({
     freeShippingThreshold: 200,
     defaultShippingCost: 25,
@@ -56,6 +59,7 @@ const Checkout: React.FC = () => {
     { id: "bank", name: "التحويل البنكي", enabled: true },
     { id: "card", name: "بطاقة ائتمان", enabled: true },
     { id: "tamara", name: "تمارا - قسّمها على 3", enabled: true },
+    { id: "tabby", name: "تابي - قسّمها على 4", enabled: true },
   ]);
 
   const [formData, setFormData] = useState({
@@ -174,6 +178,73 @@ const Checkout: React.FC = () => {
     };
 
     handleTamaraCallback();
+  }, [searchParams, user, clearCart, navigate]);
+
+  // التعامل مع العودة من Tabby
+  useEffect(() => {
+    const handleTabbyCallback = async () => {
+      const tabbyPaymentId = searchParams.get("payment_id");
+      const tabbyStatus = searchParams.get("status");
+      const pendingOrder = searchParams.get("order_ref");
+
+      if (tabbyPaymentId && tabbyStatus === "AUTHORIZED" && pendingOrder && user) {
+        setTabbyProcessing(true);
+        setStep(2);
+
+        try {
+          // استرجاع بيانات الطلب المحفوظة
+          const savedOrderData = localStorage.getItem(`tabby_order_${pendingOrder}`);
+          if (!savedOrderData) {
+            throw new Error("لم يتم العثور على بيانات الطلب");
+          }
+
+          const orderDataFromStorage = JSON.parse(savedOrderData);
+
+          // تأكيد الدفع مع Tabby
+          const captureResult = await captureTabbyPayment(tabbyPaymentId);
+          console.log("Tabby capture result:", captureResult);
+
+          // إنشاء الطلب في Firestore
+          const orderData = {
+            ...orderDataFromStorage,
+            paymentMethod: "tabby",
+            paymentStatus: "paid" as const,
+            tabbyPaymentId: tabbyPaymentId,
+            tabbyStatus: captureResult.status,
+            paidAt: new Date(),
+          };
+
+          await addOrder(orderData);
+
+          // تخفيض المخزون
+          const cartItems = orderDataFromStorage.items || [];
+          for (const item of cartItems) {
+            await decrementStock(item.productId, item.quantity);
+          }
+
+          // تنظيف البيانات المحفوظة
+          localStorage.removeItem(`tabby_order_${pendingOrder}`);
+
+          setOrderPlaced(true);
+          setPaidWithTabby(true);
+          clearCart();
+          setStep(3);
+
+          // إزالة معاملات URL
+          navigate("/checkout", { replace: true });
+        } catch (error) {
+          console.error("Error processing Tabby payment:", error);
+          alert("حدث خطأ أثناء معالجة الدفع بتابي. يرجى التواصل معنا.");
+        } finally {
+          setTabbyProcessing(false);
+        }
+      } else if (tabbyStatus === "REJECTED" || tabbyStatus === "EXPIRED") {
+        alert("تم رفض الدفع من تابي. يرجى المحاولة مرة أخرى.");
+        navigate("/checkout", { replace: true });
+      }
+    };
+
+    handleTabbyCallback();
   }, [searchParams, user, clearCart, navigate]);
 
   // التحقق من السلة
@@ -338,6 +409,143 @@ const Checkout: React.FC = () => {
       console.error("Error creating Tamara checkout:", error);
       alert(`حدث خطأ أثناء إنشاء جلسة الدفع: ${error.message || "خطأ غير معروف"}`);
       setTamaraProcessing(false);
+    }
+  };
+
+  // معالجة الدفع بتابي
+  const handleTabbyPayment = async () => {
+    if (!user) {
+      navigate("/login");
+      return;
+    }
+
+    setTabbyProcessing(true);
+
+    try {
+      // التحقق من توفر المخزون
+      const { products } = useStore.getState();
+      const stockErrors: string[] = [];
+      for (const item of cart) {
+        const currentProduct = products.find((p) => p.id === item.product.id);
+        if (currentProduct && currentProduct.stock < item.quantity) {
+          stockErrors.push(
+            `${item.product.name}: متوفر ${currentProduct.stock} فقط (طلبت ${item.quantity})`
+          );
+        }
+      }
+      if (stockErrors.length > 0) {
+        alert(
+          "بعض المنتجات غير متوفرة بالكمية المطلوبة:\n" + stockErrors.join("\n")
+        );
+        setTabbyProcessing(false);
+        return;
+      }
+
+      const orderReference = generateOrderId();
+
+      // تجهيز بيانات الطلب للحفظ
+      const orderDataToSave = {
+        userId: user.id,
+        customer: formData.fullName,
+        email: user.email,
+        phone: formData.phone,
+        items: cart.map((item) => ({
+          productId: item.product.id,
+          name: item.product.name,
+          quantity: item.quantity,
+          price: item.product.price,
+          image: item.product.images[0] || "",
+        })),
+        total: total,
+        subtotal: subtotal,
+        shippingCost: shipping,
+        status: "pending" as const,
+        shippingAddress: `${formData.city}، ${formData.district}، ${formData.street}${formData.building ? `، مبنى ${formData.building}` : ""}${formData.nationalAddress ? `، العنوان الوطني: ${formData.nationalAddress}` : ""}`,
+        address: {
+          fullName: formData.fullName,
+          phone: formData.phone,
+          city: formData.city,
+          district: formData.district,
+          street: formData.street,
+          building: formData.building,
+          nationalAddress: formData.nationalAddress,
+        },
+        notes: formData.notes,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      // حفظ بيانات الطلب مؤقتاً
+      localStorage.setItem(`tabby_order_${orderReference}`, JSON.stringify(orderDataToSave));
+
+      // إنشاء عنوان العودة الحالي
+      const baseUrl = window.location.origin;
+
+      // تجهيز عناصر الطلب لتابي
+      const tabbyItems = cart.map((item) => ({
+        title: item.product.name,
+        quantity: item.quantity,
+        unit_price: item.product.price.toFixed(2),
+        category: "Electronics",
+        reference_id: item.product.id,
+        image_url: item.product.images[0] || undefined,
+      }));
+
+      // إنشاء جلسة الدفع
+      const checkoutResult = await createTabbyCheckout({
+        order_reference_id: orderReference,
+        amount: total.toFixed(2),
+        currency: "SAR",
+        items: tabbyItems,
+        buyer: {
+          name: formData.fullName,
+          email: user.email,
+          phone: formData.phone.startsWith("+966")
+            ? formData.phone
+            : `+966${formData.phone.replace(/^0/, "")}`,
+        },
+        shipping_address: {
+          city: formData.city,
+          address: `${formData.district}، ${formData.street}`,
+          zip: formData.nationalAddress || "00000",
+        },
+        success_url: `${baseUrl}/checkout?status=AUTHORIZED&order_ref=${orderReference}`,
+        cancel_url: `${baseUrl}/checkout?status=REJECTED&order_ref=${orderReference}`,
+        failure_url: `${baseUrl}/checkout?status=REJECTED&order_ref=${orderReference}`,
+        description: `طلب من جبوري للإلكترونيات #${orderReference}`,
+      });
+
+      console.log("Tabby checkout result:", JSON.stringify(checkoutResult, null, 2));
+
+      // التحقق من حالة الجلسة
+      if (checkoutResult.status === "rejected") {
+        const rejectionReason = checkoutResult.rejection_reason || "غير مؤهل للدفع عبر تابي";
+        console.error("Tabby checkout rejected:", rejectionReason);
+        throw new Error(`تم رفض طلب الدفع من تابي: ${rejectionReason}`);
+      }
+
+      // توجيه المستخدم لصفحة تابي - محاولة عدة مسارات للحصول على الرابط
+      const checkoutUrl = 
+        checkoutResult.configuration?.available_products?.installments?.[0]?.web_url ||
+        checkoutResult.configuration?.available_products?.pay_later?.[0]?.web_url ||
+        checkoutResult.web_url ||
+        checkoutResult.checkout_url;
+      
+      if (!checkoutUrl) {
+        console.error("No checkout URL found in response:", checkoutResult);
+        // محاولة عرض معلومات أكثر عن الاستجابة
+        const availableProducts = checkoutResult.configuration?.available_products;
+        if (availableProducts) {
+          console.log("Available products:", JSON.stringify(availableProducts, null, 2));
+        }
+        throw new Error("لم يتم الحصول على رابط الدفع من تابي. قد يكون المبلغ أو بيانات العميل غير مؤهلة.");
+      }
+      
+      window.location.href = checkoutUrl;
+    } catch (error: any) {
+      console.error("Error creating Tabby checkout:", error);
+      alert(`حدث خطأ أثناء إنشاء جلسة الدفع بتابي: ${error.message || "خطأ غير معروف"}`);
+      setTabbyProcessing(false);
     }
   };
 
@@ -786,6 +994,13 @@ const Checkout: React.FC = () => {
                                     className="tamara-badge"
                                   />
                                 )}
+                                {method.id === "tabby" && (
+                                  <svg className="tabby-badge" viewBox="0 0 560 180" xmlns="http://www.w3.org/2000/svg">
+                                    <path fill="#3BFFC0" d="M77.6 137.9c42.4 0 76.9-30.8 76.9-68.9S120 0 77.6 0 .8 30.8.8 69s34.4 68.9 76.8 68.9z"/>
+                                    <path fill="#292929" d="M103.6 69c0 14.3-11.6 25.9-25.9 25.9S51.8 83.3 51.8 69s11.6-25.9 25.9-25.9 25.9 11.6 25.9 25.9z"/>
+                                    <path fill="#292929" d="M207.4 27.6v17.3h-21.6v73.8h-20.5V44.9h-21.5V27.6h63.6zm54.6 0h20.5v91.1h-20.5v-5.1c-5.8 4.5-13.2 7.1-21.3 7.1-20.7 0-37.5-18.8-37.5-42s16.8-42 37.5-42c8.1 0 15.5 2.6 21.3 7.1v-16.2zm0 59.1c0-13.8-9.4-25-21-25s-21 11.2-21 25 9.4 25 21 25 21-11.2 21-25zm78.5-50.1c20.7 0 37.5 18.8 37.5 42s-16.8 42-37.5 42c-8.1 0-15.5-2.6-21.3-7.1v44.2h-20.5V27.6h20.5v5.1c5.8-4.5 13.2-7.1 21.3-7.1zm-4.3 67c11.6 0 21-11.2 21-25s-9.4-25-21-25-21 11.2-21 25 9.4 25 21 25zm87.8-67c20.7 0 37.5 18.8 37.5 42s-16.8 42-37.5 42c-8.1 0-15.5-2.6-21.3-7.1v44.2h-20.5V27.6h20.5v5.1c5.8-4.5 13.2-7.1 21.3-7.1zm-4.3 67c11.6 0 21-11.2 21-25s-9.4-25-21-25-21 11.2-21 25 9.4 25 21 25zm51.8-76.1h20.5l23.8 54.1 23.8-54.1h22.1l-56.5 126h-22.1l21.2-47.7-32.8-78.3z"/>
+                                  </svg>
+                                )}
                                 <div>
                                   <strong>{method.name}</strong>
                                   {method.id === "cash" && (
@@ -799,6 +1014,9 @@ const Checkout: React.FC = () => {
                                   )}
                                   {method.id === "tamara" && (
                                     <span>اشترِ الآن وادفع لاحقاً على 3 دفعات بدون فوائد</span>
+                                  )}
+                                  {method.id === "tabby" && (
+                                    <span>اشترِ الآن وادفع لاحقاً على 4 دفعات بدون فوائد</span>
                                   )}
                                 </div>
                               </div>
@@ -882,6 +1100,57 @@ const Checkout: React.FC = () => {
                           </button>
                         </div>
                       )}
+
+                      {formData.paymentMethod === "tabby" && (
+                        <div className="tabby-details">
+                          <div className="tabby-info">
+                            <svg className="tabby-logo" viewBox="0 0 560 180" xmlns="http://www.w3.org/2000/svg">
+                              <path fill="#3BFFC0" d="M77.6 137.9c42.4 0 76.9-30.8 76.9-68.9S120 0 77.6 0 .8 30.8.8 69s34.4 68.9 76.8 68.9z"/>
+                              <path fill="#292929" d="M103.6 69c0 14.3-11.6 25.9-25.9 25.9S51.8 83.3 51.8 69s11.6-25.9 25.9-25.9 25.9 11.6 25.9 25.9z"/>
+                              <path fill="#292929" d="M207.4 27.6v17.3h-21.6v73.8h-20.5V44.9h-21.5V27.6h63.6zm54.6 0h20.5v91.1h-20.5v-5.1c-5.8 4.5-13.2 7.1-21.3 7.1-20.7 0-37.5-18.8-37.5-42s16.8-42 37.5-42c8.1 0 15.5 2.6 21.3 7.1v-16.2zm0 59.1c0-13.8-9.4-25-21-25s-21 11.2-21 25 9.4 25 21 25 21-11.2 21-25zm78.5-50.1c20.7 0 37.5 18.8 37.5 42s-16.8 42-37.5 42c-8.1 0-15.5-2.6-21.3-7.1v44.2h-20.5V27.6h20.5v5.1c5.8-4.5 13.2-7.1 21.3-7.1zm-4.3 67c11.6 0 21-11.2 21-25s-9.4-25-21-25-21 11.2-21 25 9.4 25 21 25zm87.8-67c20.7 0 37.5 18.8 37.5 42s-16.8 42-37.5 42c-8.1 0-15.5-2.6-21.3-7.1v44.2h-20.5V27.6h20.5v5.1c5.8-4.5 13.2-7.1 21.3-7.1zm-4.3 67c11.6 0 21-11.2 21-25s-9.4-25-21-25-21 11.2-21 25 9.4 25 21 25zm51.8-76.1h20.5l23.8 54.1 23.8-54.1h22.1l-56.5 126h-22.1l21.2-47.7-32.8-78.3z"/>
+                            </svg>
+                            <h4>قسّمها على 4 دفعات بدون فوائد</h4>
+                            <div className="tabby-installments">
+                              <div className="installment">
+                                <span className="label">اليوم</span>
+                                <span className="amount">{formatPrice(total / 4)}</span>
+                              </div>
+                              <div className="installment">
+                                <span className="label">بعد شهر</span>
+                                <span className="amount">{formatPrice(total / 4)}</span>
+                              </div>
+                              <div className="installment">
+                                <span className="label">بعد شهرين</span>
+                                <span className="amount">{formatPrice(total / 4)}</span>
+                              </div>
+                              <div className="installment">
+                                <span className="label">بعد 3 شهور</span>
+                                <span className="amount">{formatPrice(total / 4)}</span>
+                              </div>
+                            </div>
+                            <p className="tabby-note">
+                              سيتم تحويلك لصفحة تابي لإتمام الدفع
+                            </p>
+                          </div>
+                          <button
+                            className="btn btn-tabby"
+                            onClick={handleTabbyPayment}
+                            disabled={tabbyProcessing}
+                          >
+                            {tabbyProcessing ? (
+                              <>
+                                <Loader className="spinner" size={18} />
+                                جاري التحويل لتابي...
+                              </>
+                            ) : (
+                              <>
+                                <Clock size={18} />
+                                الدفع عبر تابي - {formatPrice(total)}
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -889,12 +1158,12 @@ const Checkout: React.FC = () => {
                     <button
                       className="btn btn-outline"
                       onClick={() => setStep(1)}
-                      disabled={cardProcessing || tamaraProcessing}
+                      disabled={cardProcessing || tamaraProcessing || tabbyProcessing}
                     >
                       <ArrowRight size={18} />
                       السابق
                     </button>
-                    {formData.paymentMethod !== "card" && formData.paymentMethod !== "tamara" && (
+                    {formData.paymentMethod !== "card" && formData.paymentMethod !== "tamara" && formData.paymentMethod !== "tabby" && (
                       <button
                         className="btn btn-primary"
                         onClick={handleSubmitOrder}
@@ -981,7 +1250,16 @@ const Checkout: React.FC = () => {
                   <span>تم الدفع بنجاح عبر تمارا ✓</span>
                 </div>
               )}
-              <p>شكراً لك على طلبك. {paidWithTamara ? 'تم استلام الدفع وسيتم شحن طلبك قريباً.' : 'سنتواصل معك قريباً لتأكيد الطلب.'}</p>
+              {paidWithTabby && (
+                <div className="payment-success-badge tabby-success">
+                  <img 
+                    src="https://checkout.tabby.ai/tabby-badge.png" 
+                    alt="Tabby" 
+                  />
+                  <span>تم الدفع بنجاح عبر تابي ✓</span>
+                </div>
+              )}
+              <p>شكراً لك على طلبك. {(paidWithTamara || paidWithTabby) ? 'تم استلام الدفع وسيتم شحن طلبك قريباً.' : 'سنتواصل معك قريباً لتأكيد الطلب.'}</p>
 
               <div className="order-actions">
                 <Link to="/account" className="btn btn-primary">

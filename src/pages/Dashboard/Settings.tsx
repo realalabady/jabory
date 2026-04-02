@@ -8,10 +8,12 @@ import {
   Save,
   Loader,
   Clock,
+  Mail,
 } from "lucide-react";
 import { useStore } from "../../store/useStore";
 import { getSettings, updateSettings } from "../../services/firestore";
 import { saveTamaraSettings, testTamaraConnection } from "../../services/tamara";
+import { saveTabbySettings, testTabbyConnection } from "../../services/tabby";
 import {
   updatePassword,
   EmailAuthProvider,
@@ -55,6 +57,7 @@ const Settings: React.FC = () => {
     { id: "bank", name: "التحويل البنكي", enabled: true },
     { id: "card", name: "بطاقة ائتمان (PayPal)", enabled: true },
     { id: "tamara", name: "تمارا - قسّمها على 3", enabled: true },
+    { id: "tabby", name: "تابي - قسّمها على 4", enabled: true },
   ]);
 
   const [tamaraSettings, setTamaraSettings] = useState({
@@ -62,6 +65,23 @@ const Settings: React.FC = () => {
     isConnected: false,
   });
   const [tamaraLoading, setTamaraLoading] = useState(false);
+
+  const [tabbySettings, setTabbySettings] = useState({
+    publicKey: "",
+    secretKey: "",
+    isConnected: false,
+  });
+  const [tabbyLoading, setTabbyLoading] = useState(false);
+
+  const [emailSettings, setEmailSettings] = useState({
+    smtpHost: "",
+    smtpPort: 587,
+    smtpUser: "",
+    smtpPassword: "",
+    fromEmail: "",
+    fromName: "متجر جبوري",
+  });
+  const [emailLoading, setEmailLoading] = useState(false);
 
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
@@ -83,6 +103,7 @@ const Settings: React.FC = () => {
             setNotificationSettings(settings.notifications);
           if (settings.payment?.methods)
             setPaymentMethods(settings.payment.methods);
+          if (settings.email) setEmailSettings(settings.email);
         }
       } catch (error) {
         console.error("Error fetching settings:", error);
@@ -157,6 +178,45 @@ const Settings: React.FC = () => {
     }
   };
 
+  // اختبار وحفظ إعدادات تابي
+  const handleTestTabby = async () => {
+    if (!tabbySettings.publicKey || !tabbySettings.secretKey) {
+      alert("يرجى إدخال مفاتيح API");
+      return;
+    }
+    setTabbyLoading(true);
+    try {
+      const result = await testTabbyConnection(tabbySettings.publicKey, tabbySettings.secretKey);
+      if (result.success) {
+        setTabbySettings((prev) => ({ ...prev, isConnected: true }));
+        alert("تم الاتصال بتابي بنجاح!");
+      }
+    } catch (error: any) {
+      console.error("Tabby test error:", error);
+      alert(`فشل الاتصال: ${error.message || "خطأ غير معروف"}`);
+      setTabbySettings((prev) => ({ ...prev, isConnected: false }));
+    } finally {
+      setTabbyLoading(false);
+    }
+  };
+
+  const handleSaveTabby = async () => {
+    if (!tabbySettings.publicKey || !tabbySettings.secretKey) {
+      alert("يرجى إدخال مفاتيح API");
+      return;
+    }
+    setTabbyLoading(true);
+    try {
+      await saveTabbySettings(tabbySettings.publicKey, tabbySettings.secretKey);
+      alert("تم حفظ إعدادات تابي بنجاح");
+    } catch (error: any) {
+      console.error("Tabby save error:", error);
+      alert(`فشل الحفظ: ${error.message || "خطأ غير معروف"}`);
+    } finally {
+      setTabbyLoading(false);
+    }
+  };
+
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (passwordForm.newPass !== passwordForm.confirm) {
@@ -202,6 +262,7 @@ const Settings: React.FC = () => {
     { id: "shipping", label: "الشحن", icon: Truck },
     { id: "notifications", label: "الإشعارات", icon: Bell },
     { id: "payment", label: "الدفع", icon: CreditCard },
+    { id: "email", label: "البريد الإلكتروني", icon: Mail },
     { id: "security", label: "الأمان", icon: Shield },
   ];
 
@@ -585,6 +646,188 @@ const Settings: React.FC = () => {
                   {tamaraSettings.isConnected && (
                     <p className="success-text">✓ متصل بتمارا</p>
                   )}
+                </div>
+
+                {/* Tabby Settings */}
+                <div className="tabby-settings">
+                  <h3>
+                    <Clock size={18} />
+                    إعدادات تابي
+                  </h3>
+                  <div className="form-group">
+                    <label>المفتاح العام (Public Key)</label>
+                    <input
+                      type="text"
+                      value={tabbySettings.publicKey}
+                      onChange={(e) =>
+                        setTabbySettings((prev) => ({
+                          ...prev,
+                          publicKey: e.target.value,
+                          isConnected: false,
+                        }))
+                      }
+                      placeholder="pk_xxxxx..."
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>المفتاح السري (Secret Key)</label>
+                    <input
+                      type="password"
+                      value={tabbySettings.secretKey}
+                      onChange={(e) =>
+                        setTabbySettings((prev) => ({
+                          ...prev,
+                          secretKey: e.target.value,
+                          isConnected: false,
+                        }))
+                      }
+                      placeholder="sk_xxxxx..."
+                    />
+                  </div>
+                  <div className="tabby-actions">
+                    <button
+                      className="btn btn-outline"
+                      onClick={handleTestTabby}
+                      disabled={tabbyLoading}
+                    >
+                      {tabbyLoading ? (
+                        <Loader className="spinner" size={16} />
+                      ) : (
+                        "اختبار الاتصال"
+                      )}
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleSaveTabby}
+                      disabled={tabbyLoading}
+                    >
+                      {tabbyLoading ? (
+                        <Loader className="spinner" size={16} />
+                      ) : (
+                        "حفظ الإعدادات"
+                      )}
+                    </button>
+                  </div>
+                  {tabbySettings.isConnected && (
+                    <p className="success-text">✓ متصل بتابي</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Email Settings */}
+          {activeTab === "email" && (
+            <div className="settings-card">
+              <div className="card-header">
+                <Mail size={22} />
+                <h2>إعدادات البريد الإلكتروني</h2>
+              </div>
+              <p className="section-desc" style={{ marginBottom: "20px", color: "#64748b" }}>
+                إعداد SMTP لإرسال إشعارات الطلبات للعملاء تلقائياً
+              </p>
+              <div className="settings-form">
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>خادم SMTP</label>
+                    <input
+                      type="text"
+                      value={emailSettings.smtpHost}
+                      onChange={(e) =>
+                        setEmailSettings({ ...emailSettings, smtpHost: e.target.value })
+                      }
+                      placeholder="smtp.gmail.com"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>منفذ SMTP</label>
+                    <input
+                      type="number"
+                      value={emailSettings.smtpPort}
+                      onChange={(e) =>
+                        setEmailSettings({ ...emailSettings, smtpPort: parseInt(e.target.value) || 587 })
+                      }
+                      placeholder="587"
+                    />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>اسم المستخدم / البريد</label>
+                    <input
+                      type="email"
+                      value={emailSettings.smtpUser}
+                      onChange={(e) =>
+                        setEmailSettings({ ...emailSettings, smtpUser: e.target.value })
+                      }
+                      placeholder="your@email.com"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>كلمة مرور التطبيق</label>
+                    <input
+                      type="password"
+                      value={emailSettings.smtpPassword}
+                      onChange={(e) =>
+                        setEmailSettings({ ...emailSettings, smtpPassword: e.target.value })
+                      }
+                      placeholder="••••••••••••••••"
+                    />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>بريد المرسل</label>
+                    <input
+                      type="email"
+                      value={emailSettings.fromEmail}
+                      onChange={(e) =>
+                        setEmailSettings({ ...emailSettings, fromEmail: e.target.value })
+                      }
+                      placeholder="noreply@jabory.com"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>اسم المرسل</label>
+                    <input
+                      type="text"
+                      value={emailSettings.fromName}
+                      onChange={(e) =>
+                        setEmailSettings({ ...emailSettings, fromName: e.target.value })
+                      }
+                      placeholder="متجر جبوري"
+                    />
+                  </div>
+                </div>
+                <div className="info-box" style={{ marginTop: "20px", padding: "15px", background: "#f1f5f9", borderRadius: "8px" }}>
+                  <h4 style={{ marginBottom: "10px", fontSize: "14px" }}>💡 إعدادات Gmail</h4>
+                  <ul style={{ fontSize: "13px", color: "#64748b", paddingRight: "20px" }}>
+                    <li>خادم SMTP: <code>smtp.gmail.com</code></li>
+                    <li>المنفذ: <code>587</code></li>
+                    <li>يجب تفعيل المصادقة الثنائية وإنشاء "كلمة مرور التطبيق" من حسابك</li>
+                  </ul>
+                </div>
+                <div className="form-actions" style={{ marginTop: "20px" }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      setEmailLoading(true);
+                      try {
+                        await updateSettings({ email: emailSettings });
+                        alert("تم حفظ إعدادات البريد بنجاح");
+                      } catch (error) {
+                        console.error("Error saving email settings:", error);
+                        alert("حدث خطأ أثناء الحفظ");
+                      } finally {
+                        setEmailLoading(false);
+                      }
+                    }}
+                    disabled={emailLoading}
+                  >
+                    {emailLoading ? <Loader className="spinner" size={18} /> : <Save size={18} />}
+                    حفظ إعدادات البريد
+                  </button>
                 </div>
               </div>
             </div>

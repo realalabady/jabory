@@ -481,6 +481,24 @@ const Account: React.FC = () => {
                                 </div>
                               ))}
                             </div>
+                            {/* Tracking Info */}
+                            {order.trackingNumber && (
+                              <div className="order-tracking">
+                                <Truck size={16} />
+                                <span>رقم التتبع: </span>
+                                <strong>{order.trackingNumber}</strong>
+                                {order.trackingUrl && (
+                                  <a 
+                                    href={order.trackingUrl} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="tracking-link"
+                                  >
+                                    تتبع الشحنة
+                                  </a>
+                                )}
+                              </div>
+                            )}
                             <div className="order-footer">
                               <div className="order-address">
                                 <MapPin size={14} />

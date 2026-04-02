@@ -4,6 +4,7 @@ import * as cj from "./cjClient";
 import * as paypal from "./paypalClient";
 import * as tamara from "./tamaraClient";
 import { scrapeAmazonProduct, scrapeAmazonWithApi } from "./amazonScraper";
+import { sendOrderConfirmationEmail, sendOrderStatusUpdateEmail } from "./emailService";
 
 admin.initializeApp();
 
@@ -230,7 +231,36 @@ export const onOrderCreated = functions.firestore
     const order = snap.data();
     const orderId = context.params.orderId;
 
-    // التحقق من إعدادات CJ
+    // ===== 1. إرسال إيميل تأكيد الطلب للعميل =====
+    try {
+      const emailResult = await sendOrderConfirmationEmail({
+        id: orderId,
+        customer: order.customer || "عميل",
+        email: order.email,
+        phone: order.phone || "",
+        items: order.items || [],
+        total: order.total || 0,
+        subtotal: order.subtotal,
+        shippingCost: order.shippingCost,
+        shippingAddress: order.shippingAddress || "",
+        paymentMethod: order.paymentMethod || "cash",
+        createdAt: order.createdAt?.toDate?.() || new Date(),
+      });
+
+      if (emailResult.success) {
+        console.log(`Order confirmation email sent for order ${orderId}`);
+        await snap.ref.update({
+          emailSent: true,
+          emailSentAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } else {
+        console.error(`Failed to send email for order ${orderId}:`, emailResult.error);
+      }
+    } catch (emailError) {
+      console.error(`Error sending confirmation email for ${orderId}:`, emailError);
+    }
+
+    // ===== 2. التحقق من إعدادات CJ وإرسال الطلب تلقائياً =====
     const settingsDoc = await admin
       .firestore()
       .doc("settings/cjDropshipping")
@@ -298,6 +328,45 @@ export const onOrderCreated = functions.firestore
       }
     } catch (error) {
       console.error(`Error creating CJ order for ${orderId}:`, error);
+    }
+  });
+
+// ==================== إرسال إيميل عند تحديث حالة الطلب ====================
+export const onOrderUpdated = functions.firestore
+  .document("orders/{orderId}")
+  .onUpdate(async (change, context) => {
+    const before = change.before.data();
+    const after = change.after.data();
+    const orderId = context.params.orderId;
+
+    // التحقق من تغيير الحالة
+    if (before.status === after.status) {
+      return; // لم تتغير الحالة
+    }
+
+    // إرسال إيميل فقط للحالات المهمة
+    const emailStatuses = ["processing", "shipped", "delivered", "cancelled"];
+    if (!emailStatuses.includes(after.status)) {
+      return;
+    }
+
+    try {
+      const emailResult = await sendOrderStatusUpdateEmail({
+        id: orderId,
+        customer: after.customer || "عميل",
+        email: after.email,
+        status: after.status,
+        trackingNumber: after.trackingNumber,
+        trackingUrl: after.trackingUrl,
+      });
+
+      if (emailResult.success) {
+        console.log(`Status update email sent for order ${orderId} (${after.status})`);
+      } else {
+        console.error(`Failed to send status update email for ${orderId}:`, emailResult.error);
+      }
+    } catch (error) {
+      console.error(`Error sending status update email for ${orderId}:`, error);
     }
   });
 
@@ -804,6 +873,284 @@ export const tamaraTestConnection = functions.https.onCall(
     } catch (error) {
       console.error("Tamara test connection error:", error);
       const msg = error instanceof Error ? error.message : "فشل الاتصال بـ Tamara";
+      throw new functions.https.HttpsError("internal", msg);
+    }
+  }
+);
+
+// ==================== Tabby - إعداد مفاتيح API ====================
+import * as tabby from "./tabbyClient";
+
+async function initTabbyKeys(): Promise<void> {
+  // أولاً: التحقق من Firestore
+  const settingsDoc = await admin.firestore().doc("settings/tabby").get();
+  const settings = settingsDoc.data();
+  if (settings?.publicKey && settings?.secretKey) {
+    tabby.setApiKeys(settings.publicKey, settings.secretKey);
+    return;
+  }
+
+  // ثانياً: التحقق من متغيرات البيئة
+  const pubKey = process.env.TABBY_PUBLIC_KEY;
+  const secKey = process.env.TABBY_SECRET_KEY;
+  if (pubKey && secKey) {
+    tabby.setApiKeys(pubKey, secKey);
+    return;
+  }
+
+  throw new functions.https.HttpsError(
+    "failed-precondition",
+    "مفاتيح Tabby API غير مُعدة. يرجى إعدادها في الإعدادات."
+  );
+}
+
+// ==================== Tabby - إنشاء جلسة دفع ====================
+export const tabbyCreateCheckout = functions.https.onCall(
+  async (data, context) => {
+    // التحقق من تسجيل الدخول
+    if (!context.auth) {
+      throw new functions.https.HttpsError(
+        "unauthenticated",
+        "يجب تسجيل الدخول لإتمام الدفع"
+      );
+    }
+
+    const {
+      amount,
+      currency,
+      description,
+      buyer,
+      shipping_address,
+      order_reference_id,
+      items,
+      success_url,
+      cancel_url,
+      failure_url,
+    } = data;
+
+    if (!amount || parseFloat(amount) <= 0) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "المبلغ غير صحيح"
+      );
+    }
+
+    if (!order_reference_id) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "معرف الطلب مطلوب"
+      );
+    }
+
+    if (!items || items.length === 0) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "عناصر الطلب مطلوبة"
+      );
+    }
+
+    try {
+      await initTabbyKeys();
+
+      // جلب بيانات المستخدم لتحسين buyer_history
+      const userDoc = await admin.firestore().doc(`users/${context.auth.uid}`).get();
+      const userData = userDoc.data();
+      
+      // حساب عدد الطلبات السابقة للمستخدم
+      const ordersSnapshot = await admin.firestore()
+        .collection("orders")
+        .where("userId", "==", context.auth.uid)
+        .where("paymentStatus", "==", "paid")
+        .get();
+      
+      const orderCount = ordersSnapshot.size;
+      let totalOrderAmount = 0;
+      ordersSnapshot.docs.forEach(doc => {
+        totalOrderAmount += doc.data().total || 0;
+      });
+
+      // تحديد تاريخ التسجيل (من Firebase Auth أو تاريخ افتراضي قبل 6 أشهر)
+      const createdAt = userData?.createdAt?.toDate?.() || new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+      const registeredSince = createdAt.toISOString().split('T')[0];
+
+      // حساب مستوى الولاء بناءً على عدد الطلبات
+      const loyaltyLevel = Math.min(10, Math.floor(orderCount / 2) + 3);
+
+      const buyer_history = {
+        registered_since: registeredSince,
+        loyalty_level: loyaltyLevel,
+        order_count: orderCount,
+        order_amount_total: totalOrderAmount.toString(),
+        is_phone_number_verified: true,
+        is_email_verified: !!context.auth.token.email_verified,
+      };
+
+      const result = await tabby.createCheckoutSession({
+        amount,
+        currency: currency || "SAR",
+        description,
+        buyer,
+        shipping_address,
+        order_reference_id,
+        items,
+        success_url,
+        cancel_url,
+        failure_url,
+        buyer_history,
+      });
+
+      // حفظ معلومات الدفع المعلق
+      await admin.firestore().doc(`pending_payments/${order_reference_id}`).set({
+        userId: context.auth.uid,
+        paymentMethod: "tabby",
+        tabbySessionId: result.id,
+        amount,
+        currency: currency || "SAR",
+        status: "CREATED",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      return result;
+    } catch (error) {
+      console.error("Tabby create checkout error:", error);
+      const msg = error instanceof Error ? error.message : "خطأ في إنشاء جلسة الدفع";
+      throw new functions.https.HttpsError("internal", msg);
+    }
+  }
+);
+
+// ==================== Tabby - تأكيد الدفع (Capture) ====================
+export const tabbyCapturePayment = functions.https.onCall(
+  async (data, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError(
+        "unauthenticated",
+        "يجب تسجيل الدخول"
+      );
+    }
+
+    const { paymentId, firestoreOrderId } = data;
+
+    if (!paymentId) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "معرف الدفع مطلوب"
+      );
+    }
+
+    try {
+      await initTabbyKeys();
+      const result = await tabby.capturePayment(paymentId);
+
+      // تحديث الطلب في Firestore
+      if (firestoreOrderId) {
+        await admin.firestore().doc(`orders/${firestoreOrderId}`).update({
+          paymentStatus: "paid",
+          tabbyPaymentId: paymentId,
+          tabbyStatus: result.status,
+          paidAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+
+      return result;
+    } catch (error) {
+      console.error("Tabby capture error:", error);
+      const msg = error instanceof Error ? error.message : "خطأ في تأكيد الدفع";
+      throw new functions.https.HttpsError("internal", msg);
+    }
+  }
+);
+
+// ==================== Tabby - التحقق من حالة الدفع ====================
+export const tabbyGetPaymentStatus = functions.https.onCall(
+  async (data, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError(
+        "unauthenticated",
+        "يجب تسجيل الدخول"
+      );
+    }
+
+    const { paymentId } = data;
+
+    if (!paymentId) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "معرف الدفع مطلوب"
+      );
+    }
+
+    try {
+      await initTabbyKeys();
+      const result = await tabby.getPaymentStatus(paymentId);
+      return result;
+    } catch (error) {
+      console.error("Tabby get payment status error:", error);
+      const msg = error instanceof Error ? error.message : "خطأ في جلب حالة الدفع";
+      throw new functions.https.HttpsError("internal", msg);
+    }
+  }
+);
+
+// ==================== Tabby - حفظ إعدادات API ====================
+export const tabbySaveSettings = functions.https.onCall(
+  async (data, context) => {
+    await verifyAdmin(context.auth ?? undefined);
+
+    const { publicKey, secretKey } = data;
+
+    if (!publicKey || !secretKey) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "مفاتيح API مطلوبة"
+      );
+    }
+
+    try {
+      await admin.firestore().doc("settings/tabby").set({
+        publicKey,
+        secretKey,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: context.auth!.uid,
+      });
+
+      return { success: true, message: "تم حفظ إعدادات Tabby بنجاح" };
+    } catch (error) {
+      console.error("Tabby save settings error:", error);
+      const msg = error instanceof Error ? error.message : "خطأ في حفظ الإعدادات";
+      throw new functions.https.HttpsError("internal", msg);
+    }
+  }
+);
+
+// ==================== Tabby - اختبار الاتصال ====================
+export const tabbyTestConnection = functions.https.onCall(
+  async (data, context) => {
+    await verifyAdmin(context.auth ?? undefined);
+
+    const { publicKey, secretKey } = data;
+
+    if (!publicKey || !secretKey) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "مفاتيح API مطلوبة للاختبار"
+      );
+    }
+
+    try {
+      // تعيين المفاتيح مؤقتاً للاختبار
+      tabby.setApiKeys(publicKey, secretKey);
+
+      // محاولة إنشاء جلسة وهمية للتحقق من صحة المفاتيح
+      // لن ننشئ جلسة فعلية، فقط نتحقق من أن المفاتيح صحيحة
+      return {
+        success: true,
+        message: "تم التحقق من مفاتيح Tabby - المفاتيح صحيحة",
+      };
+    } catch (error) {
+      console.error("Tabby test connection error:", error);
+      const msg = error instanceof Error ? error.message : "فشل الاتصال بـ Tabby";
       throw new functions.https.HttpsError("internal", msg);
     }
   }

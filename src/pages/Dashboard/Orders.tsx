@@ -16,6 +16,7 @@ import {
 import {
   subscribeToOrders,
   updateOrderStatusInFirestore,
+  updateOrderData,
   deleteOrder,
 } from "../../services/firestore";
 import type { FirestoreOrder } from "../../services/firestore";
@@ -52,6 +53,7 @@ const Orders: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [newStatus, setNewStatus] = useState<string>("");
+  const [trackingNumber, setTrackingNumber] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -148,6 +150,18 @@ const Orders: React.FC = () => {
     } catch (error) {
       console.error("Error deleting order:", error);
       alert("حدث خطأ أثناء حذف الطلب");
+    }
+  };
+
+  const handleStatusChange = async (orderId: string, newStatus: string) => {
+    try {
+      await updateOrderStatusInFirestore(
+        orderId,
+        newStatus as Order["status"],
+      );
+    } catch (error) {
+      console.error("Error updating order status:", error);
+      alert("حدث خطأ أثناء تحديث حالة الطلب");
     }
   };
 
@@ -255,7 +269,6 @@ const Orders: React.FC = () => {
                 <tbody>
                   {paginatedOrders.map((order) => {
                     const status = statusConfig[order.status];
-                    const StatusIcon = status.icon;
                     return (
                       <tr key={order.id}>
                         <td>
@@ -349,16 +362,27 @@ const Orders: React.FC = () => {
                         </td>
                         <td>{formatDate(order.createdAt)}</td>
                         <td>
-                          <span
-                            className="status-badge"
+                          <select
+                            className="status-select"
+                            value={order.status}
+                            onChange={(e) => handleStatusChange(order.id, e.target.value)}
                             style={{
                               background: status.bg,
                               color: status.color,
+                              border: `1px solid ${status.color}`,
+                              borderRadius: '6px',
+                              padding: '4px 8px',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
                             }}
                           >
-                            <StatusIcon size={14} />
-                            {status.label}
-                          </span>
+                            <option value="pending">قيد الانتظار</option>
+                            <option value="processing">قيد التجهيز</option>
+                            <option value="shipped">تم الشحن</option>
+                            <option value="delivered">تم التسليم</option>
+                            <option value="cancelled">ملغي</option>
+                          </select>
                         </td>
                         <td>
                           <button
@@ -588,18 +612,33 @@ const Orders: React.FC = () => {
                 </div>
 
                 <div className="detail-section">
-                  <h4>تحديث الحالة</h4>
-                  <select
-                    className="form-select"
-                    value={newStatus || selectedOrder.status}
-                    onChange={(e) => setNewStatus(e.target.value)}
-                  >
-                    {Object.entries(statusConfig).map(([key, value]) => (
-                      <option key={key} value={key}>
-                        {value.label}
-                      </option>
-                    ))}
-                  </select>
+                  <h4>تحديث الطلب</h4>
+                  <div className="update-form">
+                    <div className="form-group">
+                      <label>حالة الطلب</label>
+                      <select
+                        className="form-select"
+                        value={newStatus || selectedOrder.status}
+                        onChange={(e) => setNewStatus(e.target.value)}
+                      >
+                        {Object.entries(statusConfig).map(([key, value]) => (
+                          <option key={key} value={key}>
+                            {value.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label>رقم التتبع</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="أدخل رقم تتبع الشحنة"
+                        value={trackingNumber !== "" ? trackingNumber : (selectedOrder.trackingNumber || "")}
+                        onChange={(e) => setTrackingNumber(e.target.value)}
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -615,7 +654,11 @@ const Orders: React.FC = () => {
               </button>
               <button
                 className="btn btn-outline"
-                onClick={() => setSelectedOrder(null)}
+                onClick={() => {
+                  setSelectedOrder(null);
+                  setNewStatus("");
+                  setTrackingNumber("");
+                }}
                 disabled={loading}
               >
                 إغلاق
@@ -624,23 +667,35 @@ const Orders: React.FC = () => {
                 className="btn btn-primary"
                 disabled={loading}
                 onClick={async () => {
-                  if (newStatus && newStatus !== selectedOrder.status) {
+                  const hasStatusChange = newStatus && newStatus !== selectedOrder.status;
+                  const currentTracking = trackingNumber !== "" ? trackingNumber : selectedOrder.trackingNumber;
+                  const hasTrackingChange = currentTracking !== selectedOrder.trackingNumber;
+
+                  if (hasStatusChange || hasTrackingChange) {
                     setLoading(true);
                     try {
-                      await updateOrderStatusInFirestore(
-                        selectedOrder.id,
-                        newStatus as Order["status"],
-                      );
+                      const updateData: Record<string, unknown> = {};
+                      if (hasStatusChange) {
+                        updateData.status = newStatus as Order["status"];
+                      }
+                      if (hasTrackingChange) {
+                        updateData.trackingNumber = currentTracking || "";
+                      }
+                      await updateOrderData(selectedOrder.id, updateData as Partial<Order>);
                       setSelectedOrder(null);
                       setNewStatus("");
+                      setTrackingNumber("");
+                      alert("تم تحديث الطلب بنجاح");
                     } catch (error) {
-                      console.error("Error updating order status:", error);
-                      alert("حدث خطأ أثناء تحديث حالة الطلب");
+                      console.error("Error updating order:", error);
+                      alert("حدث خطأ أثناء تحديث الطلب");
                     } finally {
                       setLoading(false);
                     }
                   } else {
                     setSelectedOrder(null);
+                    setNewStatus("");
+                    setTrackingNumber("");
                   }
                 }}
               >
