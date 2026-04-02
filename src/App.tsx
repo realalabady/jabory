@@ -48,9 +48,6 @@ const CJProducts = lazy(() => import("./pages/Dashboard/CJProducts"));
 const CJOrders = lazy(() => import("./pages/Dashboard/CJOrders"));
 const CJSettings = lazy(() => import("./pages/Dashboard/CJSettings"));
 
-// Password Protection
-import PasswordGate from "./components/PasswordGate/PasswordGate";
-
 // Styles
 import "./styles/globals.css";
 
@@ -157,7 +154,6 @@ const App: React.FC = () => {
   }
 
   return (
-    <PasswordGate>
     <Router>
       <Suspense fallback={<PageLoader />}>
         <Routes>
@@ -280,7 +276,6 @@ const App: React.FC = () => {
         </Routes>
       </Suspense>
     </Router>
-    </PasswordGate>
   );
 };
 
