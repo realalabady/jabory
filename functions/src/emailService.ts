@@ -1,8 +1,17 @@
 import * as nodemailer from "nodemailer";
 import * as admin from "firebase-admin";
 
+interface EmailSettings {
+  smtpHost: string;
+  smtpPort: number;
+  smtpUser: string;
+  smtpPassword: string;
+  fromEmail: string;
+  fromName: string;
+}
+
 // Get email settings from Firestore
-const getEmailSettings = async () => {
+const getEmailSettings = async (): Promise<EmailSettings | null> => {
   const settingsDoc = await admin
     .firestore()
     .collection("settings")
@@ -10,32 +19,19 @@ const getEmailSettings = async () => {
     .get();
 
   if (!settingsDoc.exists) {
-    throw new Error("Email settings not configured");
+    console.log("Email settings document does not exist - skipping email");
+    return null;
   }
 
-  return settingsDoc.data() as {
-    smtpHost: string;
-    smtpPort: number;
-    smtpUser: string;
-    smtpPassword: string;
-    fromEmail: string;
-    fromName: string;
-  };
-};
+  const data = settingsDoc.data() as EmailSettings;
+  
+  // Check if required fields are configured
+  if (!data.smtpHost || !data.smtpUser || !data.smtpPassword || !data.fromEmail) {
+    console.log("Email settings incomplete - skipping email");
+    return null;
+  }
 
-// Create transporter
-const createTransporter = async () => {
-  const settings = await getEmailSettings();
-
-  return nodemailer.createTransport({
-    host: settings.smtpHost,
-    port: settings.smtpPort,
-    secure: settings.smtpPort === 465,
-    auth: {
-      user: settings.smtpUser,
-      pass: settings.smtpPassword,
-    },
-  });
+  return data;
 };
 
 // Format price
@@ -235,10 +231,25 @@ export const sendOrderConfirmationEmail = async (order: {
   shippingAddress: string;
   paymentMethod: string;
   createdAt: Date;
-}): Promise<{ success: boolean; error?: string }> => {
+}): Promise<{ success: boolean; skipped?: boolean; error?: string }> => {
   try {
     const settings = await getEmailSettings();
-    const transporter = await createTransporter();
+    
+    // If email settings not configured, skip gracefully
+    if (!settings) {
+      console.log("Email settings not configured - order confirmation email skipped");
+      return { success: true, skipped: true };
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: settings.smtpHost,
+      port: settings.smtpPort,
+      secure: settings.smtpPort === 465,
+      auth: {
+        user: settings.smtpUser,
+        pass: settings.smtpPassword,
+      },
+    });
 
     const htmlContent = getOrderConfirmationTemplate(order);
 
@@ -270,7 +281,7 @@ export const sendOrderStatusUpdateEmail = async (order: {
   status: string;
   trackingNumber?: string;
   trackingUrl?: string;
-}): Promise<{ success: boolean; error?: string }> => {
+}): Promise<{ success: boolean; skipped?: boolean; error?: string }> => {
   const statusLabels: Record<string, { label: string; color: string; message: string }> = {
     processing: {
       label: "قيد التجهيز",
@@ -301,7 +312,22 @@ export const sendOrderStatusUpdateEmail = async (order: {
 
   try {
     const settings = await getEmailSettings();
-    const transporter = await createTransporter();
+    
+    // If email settings not configured, skip gracefully
+    if (!settings) {
+      console.log("Email settings not configured - status update email skipped");
+      return { success: true, skipped: true };
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: settings.smtpHost,
+      port: settings.smtpPort,
+      secure: settings.smtpPort === 465,
+      auth: {
+        user: settings.smtpUser,
+        pass: settings.smtpPassword,
+      },
+    });
 
     const trackingHtml = order.trackingNumber
       ? `

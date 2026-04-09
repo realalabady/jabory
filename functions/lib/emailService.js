@@ -44,22 +44,16 @@ const getEmailSettings = async () => {
         .doc("email")
         .get();
     if (!settingsDoc.exists) {
-        throw new Error("Email settings not configured");
+        console.log("Email settings document does not exist - skipping email");
+        return null;
     }
-    return settingsDoc.data();
-};
-// Create transporter
-const createTransporter = async () => {
-    const settings = await getEmailSettings();
-    return nodemailer.createTransport({
-        host: settings.smtpHost,
-        port: settings.smtpPort,
-        secure: settings.smtpPort === 465,
-        auth: {
-            user: settings.smtpUser,
-            pass: settings.smtpPassword,
-        },
-    });
+    const data = settingsDoc.data();
+    // Check if required fields are configured
+    if (!data.smtpHost || !data.smtpUser || !data.smtpPassword || !data.fromEmail) {
+        console.log("Email settings incomplete - skipping email");
+        return null;
+    }
+    return data;
 };
 // Format price
 const formatPrice = (price) => {
@@ -218,7 +212,20 @@ const getOrderConfirmationTemplate = (order) => {
 const sendOrderConfirmationEmail = async (order) => {
     try {
         const settings = await getEmailSettings();
-        const transporter = await createTransporter();
+        // If email settings not configured, skip gracefully
+        if (!settings) {
+            console.log("Email settings not configured - order confirmation email skipped");
+            return { success: true, skipped: true };
+        }
+        const transporter = nodemailer.createTransport({
+            host: settings.smtpHost,
+            port: settings.smtpPort,
+            secure: settings.smtpPort === 465,
+            auth: {
+                user: settings.smtpUser,
+                pass: settings.smtpPassword,
+            },
+        });
         const htmlContent = getOrderConfirmationTemplate(order);
         const mailOptions = {
             from: `"${settings.fromName}" <${settings.fromEmail}>`,
@@ -269,7 +276,20 @@ const sendOrderStatusUpdateEmail = async (order) => {
     }
     try {
         const settings = await getEmailSettings();
-        const transporter = await createTransporter();
+        // If email settings not configured, skip gracefully
+        if (!settings) {
+            console.log("Email settings not configured - status update email skipped");
+            return { success: true, skipped: true };
+        }
+        const transporter = nodemailer.createTransport({
+            host: settings.smtpHost,
+            port: settings.smtpPort,
+            secure: settings.smtpPort === 465,
+            auth: {
+                user: settings.smtpUser,
+                pass: settings.smtpPassword,
+            },
+        });
         const trackingHtml = order.trackingNumber
             ? `
       <div style="background: #ede9fe; border-radius: 12px; padding: 20px; margin-top: 20px; text-align: center;">
