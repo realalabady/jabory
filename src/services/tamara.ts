@@ -104,7 +104,8 @@ export async function getTamaraPaymentStatus(
  */
 export async function authorizeTamaraOrder(
   orderId: string,
-  firestoreOrderId?: string
+  firestoreOrderId?: string,
+  orderReferenceId?: string
 ): Promise<{
   order_id: string;
   status: string;
@@ -114,7 +115,7 @@ export async function authorizeTamaraOrder(
   };
 }> {
   const authorize = httpsCallable(functions, "tamaraAuthorizeOrder");
-  const result = await authorize({ orderId, firestoreOrderId });
+  const result = await authorize({ orderId, firestoreOrderId, orderReferenceId });
   return result.data as any;
 }
 

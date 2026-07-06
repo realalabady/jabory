@@ -40,14 +40,32 @@ service cloud.firestore {
     // Orders - users can read/create their own, admin can read/update all
     match /orders/{orderId} {
       allow read: if isAuth() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow create: if isAuth()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.total is number
+        && request.resource.data.total >= 0
+        && request.resource.data.items is list;
       allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
-    // Settings - anyone can read, only admin can write
-    match /settings/{settingId} {
+    // Settings
+    // Public config (store info, shipping, notifications, payment method list)
+    // is safe to read by anyone. All other settings docs contain secrets
+    // (payment provider keys, SMTP password, service-account keys) and must
+    // NOT be exposed to the public.
+    //
+    // Note: writes are handled server-side by the Admin SDK (Cloud Functions),
+    // which bypasses these rules. Admin read is kept so the dashboard settings
+    // pages can display saved values.
+    match /settings/store {
       allow read: if true;
+      allow write: if isAdmin();
+    }
+    // Any other settings doc (email, tabby, tamara, cjDropshipping,
+    // googleMerchant, ...) is admin-only.
+    match /settings/{settingId} {
+      allow read: if isAdmin();
       allow write: if isAdmin();
     }
 

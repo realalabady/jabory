@@ -5,8 +5,9 @@
 
 /* Hero Section */
 .hero {
-  background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%);
-  padding: 60px 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  padding: 80px 0;
   overflow: hidden;
   width: 100%;
 }
@@ -19,12 +20,13 @@
 }
 
 .hero-text {
-  color: white;
+  color: var(--ink);
 }
 
 .hero-badge {
   display: inline-block;
-  background: var(--secondary);
+  background: rgba(217, 119, 87, 0.12);
+  color: var(--primary);
   padding: 8px 20px;
   border-radius: 20px;
   font-size: 14px;
@@ -41,7 +43,7 @@
 
 .hero-text p {
   font-size: 18px;
-  opacity: 0.9;
+  color: var(--ink-soft);
   margin-bottom: 30px;
   line-height: 1.8;
 }
@@ -57,8 +59,8 @@
 
 .hero-image img {
   width: 100%;
-  border-radius: 20px;
-  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.3);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
 }
 
 /* Section Header */
@@ -72,7 +74,20 @@
 .section-header h2 {
   font-size: 28px;
   font-weight: 700;
-  color: var(--dark);
+  color: var(--ink);
+  position: relative;
+  padding-bottom: 10px;
+}
+
+.section-header h2::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 44px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--primary);
 }
 
 .view-all {
@@ -90,8 +105,8 @@
 
 /* Categories Section */
 .categories-section {
-  padding: 60px 0;
-  background: white;
+  padding: 72px 0;
+  background: var(--surface);
 }
 
 .categories-grid {
@@ -106,33 +121,33 @@
   align-items: center;
   gap: 15px;
   padding: 30px 20px;
-  background: var(--light);
-  border-radius: 16px;
-  transition: all 0.3s ease;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
 
 .category-card:hover {
-  background: var(--cat-color);
-  color: white;
-  transform: translateY(-5px);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--mid);
 }
 
 .category-icon {
   width: 70px;
   height: 70px;
   border-radius: 50%;
-  background: white;
+  background: var(--surface);
+  border: 1px solid var(--line);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--cat-color);
-  transition: all 0.3s ease;
+  transition: all 0.15s ease;
 }
 
 .category-card:hover .category-icon {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
+  border-color: var(--cat-color);
 }
 
 .category-card span {
@@ -142,7 +157,7 @@
 
 /* Products Section */
 .products-section {
-  padding: 60px 0;
+  padding: 72px 0;
 }
 
 .products-grid {
@@ -153,8 +168,8 @@
 
 /* Promo Banner */
 .promo-banner {
-  padding: 60px 0;
-  background: linear-gradient(135deg, var(--secondary) 0%, #ea580c 100%);
+  padding: 72px 0;
+  background: var(--primary);
 }
 
 .banner-content {
@@ -191,13 +206,15 @@
 }
 
 .banner-text .btn-secondary {
-  background: white;
-  color: var(--secondary);
+  background: #fff;
+  color: var(--primary);
+  border-color: #fff;
 }
 
 .banner-text .btn-secondary:hover {
-  background: var(--dark);
-  color: white;
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
 }
 
 .banner-image img {
@@ -332,8 +349,9 @@
   align-items: center;
   justify-content: center;
   padding: 60px 20px;
-  background: white;
-  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
   color: var(--gray);
   text-align: center;
   gap: 10px;

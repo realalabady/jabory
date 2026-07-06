@@ -3,9 +3,11 @@ import { Link } from "react-router-dom";
 import { Mail, ArrowRight, Check } from "lucide-react";
 import { sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "../../config/firebase";
+import { useStore } from "../../store/useStore";
 import "../Login/Login.css";
 
 const ForgotPassword: React.FC = () => {
+  const { storeInfo } = useStore();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
@@ -39,8 +41,7 @@ const ForgotPassword: React.FC = () => {
         <div className="login-box">
           <div className="login-header">
             <Link to="/" className="login-logo">
-              <span className="logo-text">جبوري</span>
-              <span className="logo-sub">للإلكترونيات</span>
+              <span className="logo-text">{storeInfo.storeName || "متجري"}</span>
             </Link>
             <h1>استعادة كلمة المرور</h1>
             <p>أدخل بريدك الإلكتروني وسنرسل لك رابط إعادة تعيين كلمة المرور</p>

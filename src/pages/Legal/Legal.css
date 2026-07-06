@@ -4,11 +4,7 @@
 
 /* Hero */
 .legal-hero {
-  background: linear-gradient(
-    135deg,
-    var(--primary) 0%,
-    var(--primary-dark, #1a56db) 100%
-  );
+  background: var(--primary);
   color: white;
   text-align: center;
   padding: 60px 20px;
@@ -140,7 +136,7 @@
 }
 
 .faq-item:hover {
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 12px rgba(20, 20, 19, 0.06);
 }
 
 .faq-question {

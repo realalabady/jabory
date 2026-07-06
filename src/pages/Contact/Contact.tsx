@@ -9,9 +9,11 @@ import {
   Loader,
 } from "lucide-react";
 import { addContactMessage } from "../../services/firestore";
+import { useStore } from "../../store/useStore";
 import "./Contact.css";
 
 const Contact: React.FC = () => {
+  const { storeInfo } = useStore();
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -62,7 +64,7 @@ const Contact: React.FC = () => {
               </div>
               <div>
                 <h3>اتصل بنا</h3>
-                <p>0556122411</p>
+                <p>{storeInfo.storePhone || "غير متوفر"}</p>
                 <span>متاح 24/7</span>
               </div>
             </div>
@@ -73,7 +75,7 @@ const Contact: React.FC = () => {
               </div>
               <div>
                 <h3>البريد الإلكتروني</h3>
-                <p>jaboor1994@gmail.com</p>
+                <p>{storeInfo.storeEmail || "غير متوفر"}</p>
                 <span>نرد خلال 24 ساعة</span>
               </div>
             </div>
@@ -84,7 +86,7 @@ const Contact: React.FC = () => {
               </div>
               <div>
                 <h3>العنوان</h3>
-                <p>الرياض، المملكة العربية السعودية</p>
+                <p>{storeInfo.storeAddress || "المملكة العربية السعودية"}</p>
               </div>
             </div>
 

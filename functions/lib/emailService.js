@@ -36,6 +36,25 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendOrderStatusUpdateEmail = exports.sendOrderConfirmationEmail = void 0;
 const nodemailer = __importStar(require("nodemailer"));
 const admin = __importStar(require("firebase-admin"));
+const getStoreBranding = async () => {
+    try {
+        const storeDoc = await admin
+            .firestore()
+            .collection("settings")
+            .doc("store")
+            .get();
+        const data = storeDoc.data() || {};
+        const store = data.store || data;
+        return {
+            storeName: store.storeName || "متجرنا",
+            supportEmail: store.storeEmail || "",
+            supportPhone: store.storePhone || "",
+        };
+    }
+    catch (_a) {
+        return { storeName: "متجرنا", supportEmail: "", supportPhone: "" };
+    }
+};
 // Get email settings from Firestore
 const getEmailSettings = async () => {
     const settingsDoc = await admin
@@ -63,7 +82,11 @@ const formatPrice = (price) => {
     }).format(price);
 };
 // Order confirmation email template
-const getOrderConfirmationTemplate = (order) => {
+const getOrderConfirmationTemplate = (order, branding) => {
+    const storeName = branding.storeName;
+    const supportLine = [branding.supportEmail, branding.supportPhone]
+        .filter(Boolean)
+        .join(" | ") || "";
     const itemsHtml = order.items
         .map((item) => `
       <tr>
@@ -92,15 +115,14 @@ const getOrderConfirmationTemplate = (order) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>تأكيد الطلب - متجر جبوري</title>
+  <title>تأكيد الطلب - ${storeName}</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5; direction: rtl;">
   <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff;">
     
     <!-- Header -->
     <div style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); padding: 30px; text-align: center;">
-      <h1 style="color: #ffffff; margin: 0; font-size: 28px;">متجر جبوري</h1>
-      <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 14px;">للإلكترونيات والأجهزة الذكية</p>
+      <h1 style="color: #ffffff; margin: 0; font-size: 28px;">${storeName}</h1>
     </div>
 
     <!-- Success Message -->
@@ -109,7 +131,7 @@ const getOrderConfirmationTemplate = (order) => {
         <span style="color: white; font-size: 30px;">✓</span>
       </div>
       <h2 style="color: #166534; margin: 0 0 10px 0; font-size: 22px;">تم استلام طلبك بنجاح!</h2>
-      <p style="color: #15803d; margin: 0; font-size: 14px;">شكراً لك على الشراء من متجر جبوري</p>
+      <p style="color: #15803d; margin: 0; font-size: 14px;">شكراً لك على الشراء من ${storeName}</p>
     </div>
 
     <!-- Order Info -->
@@ -199,8 +221,8 @@ const getOrderConfirmationTemplate = (order) => {
     <!-- Footer -->
     <div style="background: #1e293b; padding: 25px; text-align: center;">
       <p style="color: rgba(255,255,255,0.9); margin: 0 0 10px 0; font-size: 14px;">للاستفسارات تواصل معنا</p>
-      <p style="color: #60a5fa; margin: 0 0 15px 0; font-size: 14px;">support@jabory.com | 0500000000</p>
-      <p style="color: rgba(255,255,255,0.5); margin: 0; font-size: 12px;">© ${new Date().getFullYear()} متجر جبوري - جميع الحقوق محفوظة</p>
+      ${supportLine ? `<p style="color: #60a5fa; margin: 0 0 15px 0; font-size: 14px;">${supportLine}</p>` : ""}
+      <p style="color: rgba(255,255,255,0.5); margin: 0; font-size: 12px;">© ${new Date().getFullYear()} ${storeName} - جميع الحقوق محفوظة</p>
     </div>
 
   </div>
@@ -226,11 +248,12 @@ const sendOrderConfirmationEmail = async (order) => {
                 pass: settings.smtpPassword,
             },
         });
-        const htmlContent = getOrderConfirmationTemplate(order);
+        const branding = await getStoreBranding();
+        const htmlContent = getOrderConfirmationTemplate(order, branding);
         const mailOptions = {
             from: `"${settings.fromName}" <${settings.fromEmail}>`,
             to: order.email,
-            subject: `تأكيد طلبك #${order.id.slice(-8).toUpperCase()} - متجر جبوري`,
+            subject: `تأكيد طلبك #${order.id.slice(-8).toUpperCase()} - ${branding.storeName}`,
             html: htmlContent,
         };
         await transporter.sendMail(mailOptions);
@@ -281,6 +304,8 @@ const sendOrderStatusUpdateEmail = async (order) => {
             console.log("Email settings not configured - status update email skipped");
             return { success: true, skipped: true };
         }
+        const branding = await getStoreBranding();
+        const storeName = branding.storeName;
         const transporter = nodemailer.createTransport({
             host: settings.smtpHost,
             port: settings.smtpPort,
@@ -310,7 +335,7 @@ const sendOrderStatusUpdateEmail = async (order) => {
   <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff;">
     
     <div style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); padding: 30px; text-align: center;">
-      <h1 style="color: #ffffff; margin: 0; font-size: 28px;">متجر جبوري</h1>
+      <h1 style="color: #ffffff; margin: 0; font-size: 28px;">${storeName}</h1>
     </div>
 
     <div style="padding: 30px; text-align: center;">
@@ -332,7 +357,7 @@ const sendOrderStatusUpdateEmail = async (order) => {
     </div>
 
     <div style="background: #1e293b; padding: 25px; text-align: center;">
-      <p style="color: rgba(255,255,255,0.5); margin: 0; font-size: 12px;">© ${new Date().getFullYear()} متجر جبوري</p>
+      <p style="color: rgba(255,255,255,0.5); margin: 0; font-size: 12px;">© ${new Date().getFullYear()} ${storeName}</p>
     </div>
 
   </div>

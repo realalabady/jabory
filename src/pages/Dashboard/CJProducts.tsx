@@ -73,9 +73,13 @@ const resolveCJImage = (url: unknown): string => {
   let finalUrl = imgUrl;
   if (finalUrl.startsWith("//")) finalUrl = "https:" + finalUrl;
   
-  // Always use proxy for CJ images
+  // Always use proxy for CJ images. Base URL is configurable via env so a
+  // buyer can point at their own Cloud Functions deployment.
+  const proxyBase =
+    import.meta.env.VITE_CJ_IMAGE_PROXY_BASE ||
+    "https://us-central1-jabouri-digital-library.cloudfunctions.net";
   if (finalUrl.includes("cjdropshipping.com") || finalUrl.includes("alicdn.com")) {
-    return `https://us-central1-jabouri-digital-library.cloudfunctions.net/cjImageProxy?url=${encodeURIComponent(finalUrl)}`;
+    return `${proxyBase}/cjImageProxy?url=${encodeURIComponent(finalUrl)}`;
   }
   return finalUrl;
 };

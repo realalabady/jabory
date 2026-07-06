@@ -44,6 +44,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           src={product.images[0] || "/placeholder.jpg"}
           alt={product.name}
           loading="lazy"
+          width="300"
+          height="300"
         />
       </Link>
 
@@ -51,11 +53,13 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       <div className="product-actions">
         <button
           className={`action-icon ${wishlisted ? "wishlisted" : ""}`}
-          title="أضف للمفضلة"
+          aria-label={wishlisted ? "إزالة من المفضلة" : "أضف للمفضلة"}
+          aria-pressed={wishlisted}
           onClick={() => toggleWishlist(product.id)}
         >
           <Heart
             size={18}
+            aria-hidden="true"
             fill={wishlisted ? "#ef4444" : "none"}
             color={wishlisted ? "#ef4444" : "currentColor"}
           />
@@ -63,9 +67,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         <Link
           to={`/product/${product.id}`}
           className="action-icon"
-          title="عرض سريع"
+          aria-label="عرض المنتج"
         >
-          <Eye size={18} />
+          <Eye size={18} aria-hidden="true" />
         </Link>
       </div>
 
@@ -83,6 +87,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             <Star
               key={i}
               size={14}
+              aria-hidden="true"
               fill={i < 4 ? "#fbbf24" : "none"}
               color="#fbbf24"
             />
@@ -92,9 +97,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
         {/* Price */}
         <div className="product-pricing">
-          <span className="current-price">{formatPrice(product.price)}</span>
+          <span className="current-price price">{formatPrice(product.price)}</span>
           {product.oldPrice && (
-            <span className="old-price">{formatPrice(product.oldPrice)}</span>
+            <span className="old-price price">{formatPrice(product.oldPrice)}</span>
           )}
         </div>
 
@@ -104,7 +109,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           onClick={() => addToCart(product)}
           disabled={product.stock === 0}
         >
-          <ShoppingCart size={18} />
+          <ShoppingCart size={18} aria-hidden="true" />
           <span>أضف للسلة</span>
         </button>
       </div>

@@ -23,7 +23,6 @@ import { auth } from "../../config/firebase";
 import { useStore } from "../../store/useStore";
 import { subscribeToOrders } from "../../services/firestore";
 import type { FirestoreOrder } from "../../services/firestore";
-import logoImage from "../../assets/logo.jpeg";
 import "./DashboardLayout.css";
 
 const menuItems = [
@@ -51,7 +50,8 @@ const cjMenuItems = [
 const DashboardLayout: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { sidebarOpen, toggleSidebar, user, setUser } = useStore();
+  const { sidebarOpen, toggleSidebar, user, setUser, storeInfo } = useStore();
+  const isAdmin = user?.role === "admin";
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingOrders, setPendingOrders] = useState<FirestoreOrder[]>([]);
   const [notificationOpen, setNotificationOpen] = useState(false);
@@ -59,15 +59,17 @@ const DashboardLayout: React.FC = () => {
   const notificationRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
-  // حساب عدد الطلبات الجديدة للجرس
+  // حساب عدد الطلبات الجديدة للجرس — فقط بعد تأكيد صلاحية الأدمن
+  // (الاشتراك قبل ذلك يسبب أخطاء صلاحيات لغير الأدمن)
   useEffect(() => {
+    if (!isAdmin) return;
     const unsubscribe = subscribeToOrders((orders: FirestoreOrder[]) => {
       const pending = orders.filter((o) => o.status === "pending");
       setPendingCount(pending.length);
       setPendingOrders(pending.slice(0, 5)); // آخر 5 طلبات
     });
     return () => unsubscribe();
-  }, []);
+  }, [isAdmin]);
 
   // إغلاق القوائم عند النقر خارجها
   useEffect(() => {
@@ -139,6 +141,12 @@ const DashboardLayout: React.FC = () => {
     }
   };
 
+  // حارس: لا نعرض أي محتوى للداشبورد حتى نتأكد أن المستخدم أدمن.
+  // هذا يمنع "وميض" الداشبورد لغير الأدمن ويمنع الاشتراكات غير المصرح بها.
+  if (!isAdmin) {
+    return null;
+  }
+
   return (
     <div
       className={`dashboard-layout ${sidebarOpen ? "sidebar-open" : "sidebar-collapsed"}`}
@@ -147,7 +155,9 @@ const DashboardLayout: React.FC = () => {
       <aside className="dashboard-sidebar">
         <div className="sidebar-header">
           <Link to="/" className="sidebar-logo">
-            <img src={logoImage} alt="جبوري" className="sidebar-logo-image" />
+            <span className="sidebar-logo-text">
+              {storeInfo.storeName || "متجري"}
+            </span>
             <span className="logo-sub">لوحة التحكم</span>
           </Link>
         </div>
@@ -213,8 +223,12 @@ const DashboardLayout: React.FC = () => {
         {/* Top Bar */}
         <header className="dashboard-header">
           <div className="header-right">
-            <button className="menu-toggle" onClick={toggleSidebar}>
-              <Menu size={24} />
+            <button
+              className="menu-toggle"
+              onClick={toggleSidebar}
+              aria-label="تبديل القائمة الجانبية"
+            >
+              <Menu size={24} aria-hidden="true" />
             </button>
             <h1 className="page-title">
               {[...menuItems, ...cjMenuItems].find((item) =>
@@ -234,8 +248,10 @@ const DashboardLayout: React.FC = () => {
               <button
                 className={`notification-btn ${pendingCount > 0 ? "has-notifications" : ""}`}
                 onClick={() => setNotificationOpen(!notificationOpen)}
+                aria-label="الإشعارات"
+                aria-expanded={notificationOpen}
               >
-                <Bell size={22} />
+                <Bell size={22} aria-hidden="true" />
                 {pendingCount > 0 && (
                   <span className="notification-badge">{pendingCount}</span>
                 )}
@@ -325,7 +341,7 @@ const DashboardLayout: React.FC = () => {
                     className="avatar-large"
                   />
                   <div className="name">{user?.name || "المدير"}</div>
-                  <div className="email">{user?.email || "admin@jabory.com"}</div>
+                  <div className="email">{user?.email || ""}</div>
                 </div>
 
                 <div className="user-dropdown-menu">

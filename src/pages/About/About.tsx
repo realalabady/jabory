@@ -1,9 +1,12 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { Shield, Truck, Headphones, Award, Users, Globe } from "lucide-react";
+import { useStore } from "../../store/useStore";
 import "./About.css";
 
 const About: React.FC = () => {
+  const { storeInfo } = useStore();
+  const storeName = storeInfo.storeName || "متجرنا";
   return (
     <div className="about-page">
       {/* Hero Section */}
@@ -11,8 +14,7 @@ const About: React.FC = () => {
         <div className="container">
           <h1>من نحن</h1>
           <p>
-            جبوري للإلكترونيات - وجهتك الأولى للإلكترونيات في المملكة العربية
-            السعودية
+            {storeName} - وجهتك الأولى للتسوق الإلكتروني
           </p>
         </div>
       </section>
@@ -23,10 +25,9 @@ const About: React.FC = () => {
           <div className="story-content">
             <h2>قصتنا</h2>
             <p>
-              تأسست جبوري للإلكترونيات بهدف توفير أحدث المنتجات الإلكترونية
-              بأفضل الأسعار وأعلى جودة. نسعى دائماً لتقديم تجربة تسوق مميزة
-              لعملائنا من خلال توفير منتجات أصلية ومضمونة مع خدمة عملاء
-              استثنائية.
+              تأسس {storeName} بهدف توفير أحدث المنتجات بأفضل الأسعار وأعلى
+              جودة. نسعى دائماً لتقديم تجربة تسوق مميزة لعملائنا من خلال توفير
+              منتجات أصلية ومضمونة مع خدمة عملاء استثنائية.
             </p>
             <p>
               نعمل مع أفضل الموردين والعلامات التجارية العالمية لنضمن حصولك على
@@ -40,7 +41,7 @@ const About: React.FC = () => {
       {/* Features Section */}
       <section className="about-features">
         <div className="container">
-          <h2>لماذا تختار جبوري؟</h2>
+          <h2>لماذا تختارنا؟</h2>
           <div className="features-grid">
             <div className="feature-card">
               <div className="feature-icon">

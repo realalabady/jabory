@@ -105,7 +105,7 @@ async function createCheckoutSession(request) {
             amount: request.total_amount,
             currency,
         },
-        description: request.description || `طلب من جبوري للإلكترونيات #${request.order_reference_id}`,
+        description: request.description || `طلب #${request.order_reference_id}`,
         country_code: "SA",
         payment_type: "PAY_BY_INSTALMENTS",
         instalments: 3, // 3 أقساط

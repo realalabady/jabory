@@ -21,7 +21,7 @@ const Register: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const { setUser } = useStore();
+  const { setUser, storeInfo } = useStore();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -135,8 +135,7 @@ const Register: React.FC = () => {
         <div className="login-box">
           <div className="login-header">
             <Link to="/" className="login-logo">
-              <span className="logo-text">جبوري</span>
-              <span className="logo-sub">للإلكترونيات</span>
+              <span className="logo-text">{storeInfo.storeName || "متجري"}</span>
             </Link>
             <h1>إنشاء حساب جديد</h1>
             <p>أنشئ حسابك للاستفادة من جميع المميزات</p>

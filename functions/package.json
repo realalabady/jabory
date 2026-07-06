@@ -1,5 +1,5 @@
 {
-  "name": "jabory-functions",
+  "name": "estore-template-functions",
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",

@@ -32,6 +32,7 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var _a, _b;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.scrapeProductFromUrl = exports.tabbyTestConnection = exports.tabbySaveSettings = exports.tabbyGetPaymentStatus = exports.tabbyCapturePayment = exports.tabbyCreateCheckout = exports.tamaraTestConnection = exports.tamaraSaveSettings = exports.tamaraAuthorizeOrder = exports.tamaraGetPaymentStatus = exports.tamaraCreateCheckout = exports.paypalGetOrderStatus = exports.paypalCaptureOrder = exports.paypalCreateOrder = exports.cjImageProxy = exports.cjSyncOrderStatuses = exports.onOrderUpdated = exports.onOrderCreated = exports.cjGetBalance = exports.cjCalculateFreight = exports.cjGetTracking = exports.cjListOrders = exports.cjConfirmOrder = exports.cjCreateOrder = exports.cjGetCategories = exports.cjGetProductInventory = exports.cjGetProductVariants = exports.cjGetProductDetail = exports.cjSearchProducts = exports.merchantSyncProductsApi = exports.merchantSyncProducts = exports.merchantSaveApiSettings = exports.merchantProductsFeed = exports.merchantProductsApi = exports.cjTestConnection = void 0;
 const functions = __importStar(require("firebase-functions"));
@@ -75,7 +76,115 @@ function wrapError(error) {
     }
     throw new functions.https.HttpsError("internal", msg);
 }
-const STORE_BASE_URL = "https://jabouri-digital-library.web.app";
+// Base URL of the storefront. Configurable so a buyer can rebrand without
+// editing code: set the STORE_BASE_URL env var (or functions config) at deploy.
+const STORE_BASE_URL = process.env.STORE_BASE_URL ||
+    ((_a = functions.config().store) === null || _a === void 0 ? void 0 : _a.base_url) ||
+    "https://jabouri-digital-library.web.app";
+// Generic store brand fallback (buyer overrides via settings/store.storeName).
+const STORE_BRAND_FALLBACK = process.env.STORE_BRAND || ((_b = functions.config().store) === null || _b === void 0 ? void 0 : _b.brand) || "My Store";
+/**
+ * Recompute the authoritative order total from Firestore product prices plus
+ * shipping, and reject client-supplied amounts that don't match (±0.01).
+ *
+ * Client sends items: [{ productId, quantity }]. Prices are looked up
+ * server-side so a malicious client cannot understate the amount charged.
+ * Returns the server-computed total for downstream use.
+ */
+async function validateOrderAmount(items, clientAmount) {
+    var _a, _b, _c, _d, _e, _f;
+    if (!Array.isArray(items) || items.length === 0) {
+        throw new functions.https.HttpsError("invalid-argument", "عناصر الطلب مطلوبة");
+    }
+    const db = admin.firestore();
+    let subtotal = 0;
+    for (const item of items) {
+        const productId = (item === null || item === void 0 ? void 0 : item.productId) || (item === null || item === void 0 ? void 0 : item.reference_id);
+        const quantity = Number(item === null || item === void 0 ? void 0 : item.quantity) || 0;
+        if (!productId || quantity <= 0) {
+            throw new functions.https.HttpsError("invalid-argument", "عنصر طلب غير صالح");
+        }
+        const productDoc = await db.doc(`products/${productId}`).get();
+        if (!productDoc.exists) {
+            throw new functions.https.HttpsError("invalid-argument", `المنتج غير موجود: ${productId}`);
+        }
+        const product = productDoc.data() || {};
+        // Prefer the discounted/sale price if present, else the base price.
+        const unitPrice = Number((_c = (_b = (_a = product.discountPrice) !== null && _a !== void 0 ? _a : product.salePrice) !== null && _b !== void 0 ? _b : product.price) !== null && _c !== void 0 ? _c : 0);
+        if (!(unitPrice > 0)) {
+            throw new functions.https.HttpsError("invalid-argument", `سعر المنتج غير صالح: ${productId}`);
+        }
+        subtotal += unitPrice * quantity;
+    }
+    // Shipping from settings/store (shipping sub-object). Free shipping if the
+    // subtotal reaches the configured threshold.
+    let shippingCost = 0;
+    try {
+        const settingsDoc = await db.doc("settings/store").get();
+        const shipping = (_d = settingsDoc.data()) === null || _d === void 0 ? void 0 : _d.shipping;
+        if (shipping) {
+            const threshold = Number((_e = shipping.freeShippingThreshold) !== null && _e !== void 0 ? _e : 0);
+            const defaultCost = Number((_f = shipping.defaultShippingCost) !== null && _f !== void 0 ? _f : 0);
+            const freeEnabled = shipping.enableFreeShipping !== false;
+            if (freeEnabled && threshold > 0 && subtotal >= threshold) {
+                shippingCost = 0;
+            }
+            else {
+                shippingCost = defaultCost;
+            }
+        }
+    }
+    catch (e) {
+        console.error("validateOrderAmount: failed to read shipping settings", e);
+    }
+    const expectedTotal = Math.round((subtotal + shippingCost) * 100) / 100;
+    const submitted = Number(clientAmount);
+    if (Math.abs(expectedTotal - submitted) > 0.01) {
+        console.error(`Order amount mismatch: client=${submitted} expected=${expectedTotal}`);
+        throw new functions.https.HttpsError("failed-precondition", "المبلغ المُرسل لا يطابق إجمالي الطلب المحسوب");
+    }
+    return expectedTotal;
+}
+/**
+ * Verify that a captured payment legitimately belongs to the caller before
+ * marking an order paid:
+ *  - the pending_payments doc must belong to context.auth.uid
+ *  - the order doc's userId must equal context.auth.uid
+ *  - the captured amount must equal the order total (±0.01)
+ * Throws HttpsError on any mismatch. No-op fields (missing ids) are tolerated
+ * so the caller can still proceed when an id is genuinely absent.
+ */
+async function verifyPaymentOwnership(opts) {
+    var _a, _b;
+    const { uid, firestoreOrderId, pendingRef, capturedAmount } = opts;
+    const db = admin.firestore();
+    // 1. pending_payments ownership
+    if (pendingRef) {
+        if (!pendingRef.exists) {
+            throw new functions.https.HttpsError("not-found", "سجل الدفع غير موجود");
+        }
+        if (((_a = pendingRef.data()) === null || _a === void 0 ? void 0 : _a.userId) !== uid) {
+            throw new functions.https.HttpsError("permission-denied", "هذا الدفع لا يخص المستخدم الحالي");
+        }
+    }
+    // 2 & 3. order ownership + amount match
+    if (firestoreOrderId) {
+        const orderSnap = await db.doc(`orders/${firestoreOrderId}`).get();
+        if (!orderSnap.exists) {
+            throw new functions.https.HttpsError("not-found", "الطلب غير موجود");
+        }
+        const order = orderSnap.data() || {};
+        if (order.userId !== uid) {
+            throw new functions.https.HttpsError("permission-denied", "هذا الطلب لا يخص المستخدم الحالي");
+        }
+        if (typeof capturedAmount === "number" && !Number.isNaN(capturedAmount)) {
+            const orderTotal = Number((_b = order.total) !== null && _b !== void 0 ? _b : 0);
+            if (Math.abs(orderTotal - capturedAmount) > 0.01) {
+                throw new functions.https.HttpsError("failed-precondition", "المبلغ المدفوع لا يطابق إجمالي الطلب");
+            }
+        }
+    }
+}
 function xmlEscape(value) {
     return value
         .replace(/&/g, "&amp;")
@@ -124,7 +233,7 @@ function mapDocToMerchantProduct(doc) {
     const images = normalizeImages(data.images);
     const stockValue = toNumber(data.stock);
     const brand = (typeof data.supplierName === "string" && data.supplierName.trim()) ||
-        "Jabory";
+        STORE_BRAND_FALLBACK;
     if (!title || priceValue <= 0 || images.length === 0)
         return null;
     return {
@@ -300,7 +409,7 @@ exports.merchantProductsApi = functions.https.onRequest(async (req, res) => {
         const products = await loadMerchantProducts(limit);
         res.set("Cache-Control", "public, max-age=300");
         res.status(200).json({
-            source: "Jabory Electronics - API Feed",
+            source: `${STORE_BRAND_FALLBACK} - API Feed`,
             generatedAt: new Date().toISOString(),
             currency: "SAR",
             count: products.length,
@@ -349,9 +458,9 @@ exports.merchantProductsFeed = functions.https.onRequest(async (req, res) => {
         const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
   <channel>
-    <title>Jabory Electronics Products</title>
+    <title>${xmlEscape(STORE_BRAND_FALLBACK)} Products</title>
     <link>${STORE_BASE_URL}</link>
-    <description>Google Merchant product feed for Jabory Electronics</description>
+    <description>Google Merchant product feed for ${xmlEscape(STORE_BRAND_FALLBACK)}</description>
     ${items}
   </channel>
 </rss>`;
@@ -665,6 +774,33 @@ exports.onOrderCreated = functions.firestore
     var _a, _b;
     const order = snap.data();
     const orderId = context.params.orderId;
+    // ===== 0. تخفيض المخزون داخل معاملة (بدلاً من العميل) =====
+    // يُنفَّذ على الخادم لأن قواعد Firestore تمنع العملاء من الكتابة على المنتجات.
+    try {
+        const db = admin.firestore();
+        for (const item of order.items || []) {
+            const productId = item === null || item === void 0 ? void 0 : item.productId;
+            const quantity = Number(item === null || item === void 0 ? void 0 : item.quantity) || 0;
+            if (!productId || quantity <= 0)
+                continue;
+            const productRef = db.doc(`products/${productId}`);
+            await db.runTransaction(async (tx) => {
+                var _a, _b;
+                const productSnap = await tx.get(productRef);
+                if (!productSnap.exists)
+                    return;
+                const currentStock = Number((_b = (_a = productSnap.data()) === null || _a === void 0 ? void 0 : _a.stock) !== null && _b !== void 0 ? _b : 0);
+                const newStock = Math.max(0, currentStock - quantity);
+                tx.update(productRef, {
+                    stock: newStock,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+            });
+        }
+    }
+    catch (stockError) {
+        console.error(`Error decrementing stock for order ${orderId}:`, stockError);
+    }
     // ===== 1. إرسال إيميل تأكيد الطلب للعميل =====
     try {
         const emailResult = await (0, emailService_1.sendOrderConfirmationEmail)({
@@ -724,7 +860,7 @@ exports.onOrderCreated = functions.firestore
     try {
         const address = order.address || {};
         const cjOrderData = {
-            orderNumber: `JAB-${orderId}`,
+            orderNumber: `ORD-${orderId}`,
             shippingZip: "00000",
             shippingCountryCode: "SA",
             shippingCountry: "Saudi Arabia",
@@ -864,7 +1000,22 @@ exports.cjImageProxy = functions.https.onRequest(async (req, res) => {
         "assets.cjdropshipping.com",
         "alicdn.com",
     ];
-    const isAllowed = allowedDomains.some((domain) => url === null || url === void 0 ? void 0 : url.includes(domain));
+    // Parse the URL and match the hostname exactly (or as a subdomain) to
+    // prevent SSRF via crafted URLs like https://evil.com/?x=alicdn.com
+    let hostname = "";
+    try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+            res.status(400).send("Invalid URL");
+            return;
+        }
+        hostname = parsed.hostname.toLowerCase();
+    }
+    catch (_a) {
+        res.status(400).send("Invalid URL");
+        return;
+    }
+    const isAllowed = allowedDomains.some((domain) => hostname === domain || hostname.endsWith("." + domain));
     if (!url || typeof url !== "string" || !isAllowed) {
         res.status(400).send("Invalid URL");
         return;
@@ -882,7 +1033,7 @@ exports.cjImageProxy = functions.https.onRequest(async (req, res) => {
         res.set("Access-Control-Allow-Origin", "*");
         res.send(buffer);
     }
-    catch (_a) {
+    catch (_b) {
         res.status(500).send("Proxy error");
     }
 });
@@ -892,25 +1043,27 @@ exports.paypalCreateOrder = functions.https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "يجب تسجيل الدخول لإتمام الدفع");
     }
-    const { amount, currency, orderId, description } = data;
+    const { amount, currency, orderId, description, items } = data;
     if (!amount || amount <= 0) {
         throw new functions.https.HttpsError("invalid-argument", "المبلغ غير صحيح");
     }
     if (!orderId) {
         throw new functions.https.HttpsError("invalid-argument", "معرف الطلب مطلوب");
     }
+    // التحقق من المبلغ من جهة الخادم بإعادة حسابه من أسعار المنتجات
+    const validatedAmount = await validateOrderAmount(items, parseFloat(amount));
     try {
         const result = await paypal.createOrder({
-            amount: parseFloat(amount),
+            amount: validatedAmount,
             currency: currency || "SAR",
             orderId,
-            description: description || `طلب من جبوري للإلكترونيات #${orderId}`,
+            description: description || `${STORE_BRAND_FALLBACK} #${orderId}`,
         });
         // حفظ معرف PayPal في الطلب المؤقت
         await admin.firestore().doc(`pending_payments/${orderId}`).set({
             userId: context.auth.uid,
             paypalOrderId: result.id,
-            amount,
+            amount: validatedAmount,
             currency: currency || "SAR",
             status: "CREATED",
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -925,6 +1078,7 @@ exports.paypalCreateOrder = functions.https.onCall(async (data, context) => {
 });
 // ==================== PayPal - تأكيد الدفع ====================
 exports.paypalCaptureOrder = functions.https.onCall(async (data, context) => {
+    var _a;
     // التحقق من تسجيل الدخول
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "يجب تسجيل الدخول لإتمام الدفع");
@@ -934,21 +1088,30 @@ exports.paypalCaptureOrder = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError("invalid-argument", "معرف طلب PayPal مطلوب");
     }
     try {
-        const result = await paypal.captureOrder(paypalOrderId);
-        // تحديث حالة الدفع المعلق
-        const pendingRef = admin.firestore().collection("pending_payments");
-        const pendingSnap = await pendingRef
+        // البحث عن سجل الدفع المعلق والتحقق من ملكيته
+        const pendingCol = admin.firestore().collection("pending_payments");
+        const pendingSnap = await pendingCol
             .where("paypalOrderId", "==", paypalOrderId)
             .where("userId", "==", context.auth.uid)
             .limit(1)
             .get();
-        if (!pendingSnap.empty) {
-            await pendingSnap.docs[0].ref.update({
-                status: result.status,
-                captureId: result.captureId,
-                capturedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
+        if (pendingSnap.empty) {
+            throw new functions.https.HttpsError("permission-denied", "سجل الدفع غير موجود أو لا يخص المستخدم الحالي");
         }
+        const pendingDoc = pendingSnap.docs[0];
+        // التحقق من الملكية ومطابقة المبلغ (المبلغ المُتحقق منه مسبقاً بالريال)
+        await verifyPaymentOwnership({
+            uid: context.auth.uid,
+            firestoreOrderId,
+            pendingRef: pendingDoc,
+            capturedAmount: Number((_a = pendingDoc.data()) === null || _a === void 0 ? void 0 : _a.amount),
+        });
+        const result = await paypal.captureOrder(paypalOrderId);
+        await pendingDoc.ref.update({
+            status: result.status,
+            captureId: result.captureId,
+            capturedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
         // تحديث الطلب في Firestore إذا موجود
         if (firestoreOrderId) {
             await admin.firestore().doc(`orders/${firestoreOrderId}`).update({
@@ -1025,6 +1188,8 @@ exports.tamaraCreateCheckout = functions.https.onCall(async (data, context) => {
     if (!items || items.length === 0) {
         throw new functions.https.HttpsError("invalid-argument", "عناصر الطلب مطلوبة");
     }
+    // التحقق من المبلغ من جهة الخادم
+    const validatedTamaraTotal = await validateOrderAmount(items, Number(totalAmount));
     try {
         await initTamaraToken();
         const result = await tamara.createCheckoutSession({
@@ -1046,7 +1211,7 @@ exports.tamaraCreateCheckout = functions.https.onCall(async (data, context) => {
             paymentMethod: "tamara",
             tamaraCheckoutId: result.checkout_id,
             tamaraCheckoutUrl: result.checkout_url,
-            totalAmount,
+            totalAmount: validatedTamaraTotal,
             currency: currency || "SAR",
             status: "CREATED",
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1081,14 +1246,31 @@ exports.tamaraGetPaymentStatus = functions.https.onCall(async (data, context) =>
 });
 // ==================== Tamara - تأكيد الطلب (Authorize) ====================
 exports.tamaraAuthorizeOrder = functions.https.onCall(async (data, context) => {
+    var _a;
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "يجب تسجيل الدخول");
     }
-    const { orderId, firestoreOrderId } = data;
+    const { orderId, firestoreOrderId, orderReferenceId } = data;
     if (!orderId) {
         throw new functions.https.HttpsError("invalid-argument", "معرف طلب Tamara مطلوب");
     }
     try {
+        // التحقق من ملكية سجل الدفع والطلب ومطابقة المبلغ قبل التأكيد
+        let pendingRef;
+        let capturedAmount;
+        if (orderReferenceId) {
+            pendingRef = await admin
+                .firestore()
+                .doc(`pending_payments/${orderReferenceId}`)
+                .get();
+            capturedAmount = Number((_a = pendingRef.data()) === null || _a === void 0 ? void 0 : _a.totalAmount);
+        }
+        await verifyPaymentOwnership({
+            uid: context.auth.uid,
+            firestoreOrderId,
+            pendingRef,
+            capturedAmount,
+        });
         await initTamaraToken();
         const result = await tamara.authorizeOrder(orderId);
         // تحديث الطلب في Firestore
@@ -1192,6 +1374,8 @@ exports.tabbyCreateCheckout = functions.https.onCall(async (data, context) => {
     if (!items || items.length === 0) {
         throw new functions.https.HttpsError("invalid-argument", "عناصر الطلب مطلوبة");
     }
+    // التحقق من المبلغ من جهة الخادم
+    const validatedTabbyAmount = await validateOrderAmount(items, parseFloat(amount));
     try {
         await initTabbyKeys();
         // جلب بيانات المستخدم لتحسين buyer_history
@@ -1239,7 +1423,7 @@ exports.tabbyCreateCheckout = functions.https.onCall(async (data, context) => {
             userId: context.auth.uid,
             paymentMethod: "tabby",
             tabbySessionId: result.id,
-            amount,
+            amount: validatedTabbyAmount,
             currency: currency || "SAR",
             status: "CREATED",
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1254,14 +1438,31 @@ exports.tabbyCreateCheckout = functions.https.onCall(async (data, context) => {
 });
 // ==================== Tabby - تأكيد الدفع (Capture) ====================
 exports.tabbyCapturePayment = functions.https.onCall(async (data, context) => {
+    var _a;
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "يجب تسجيل الدخول");
     }
-    const { paymentId, firestoreOrderId } = data;
+    const { paymentId, firestoreOrderId, orderReferenceId } = data;
     if (!paymentId) {
         throw new functions.https.HttpsError("invalid-argument", "معرف الدفع مطلوب");
     }
     try {
+        // التحقق من ملكية سجل الدفع والطلب ومطابقة المبلغ قبل التأكيد
+        let pendingRef;
+        let capturedAmount;
+        if (orderReferenceId) {
+            pendingRef = await admin
+                .firestore()
+                .doc(`pending_payments/${orderReferenceId}`)
+                .get();
+            capturedAmount = Number((_a = pendingRef.data()) === null || _a === void 0 ? void 0 : _a.amount);
+        }
+        await verifyPaymentOwnership({
+            uid: context.auth.uid,
+            firestoreOrderId,
+            pendingRef,
+            capturedAmount,
+        });
         await initTabbyKeys();
         const result = await tabby.capturePayment(paymentId);
         // تحديث الطلب في Firestore

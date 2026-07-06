@@ -32,6 +32,7 @@ export async function createPayPalOrder(data: {
   amount: number;
   currency?: string;
   orderId: string;
+  items?: { productId: string; quantity: number }[];
   description?: string;
 }): Promise<CreateOrderResponse> {
   const createOrder = httpsCallable<typeof data, CreateOrderResponse>(
@@ -42,6 +43,7 @@ export async function createPayPalOrder(data: {
     amount: data.amount,
     currency: data.currency || "SAR",
     orderId: data.orderId,
+    items: data.items,
     description: data.description,
   });
   return result.data;

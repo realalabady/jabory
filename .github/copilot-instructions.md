@@ -1,4 +1,4 @@
-# Copilot Instructions - جبوري للإلكترونيات
+# Copilot Instructions - متجر إلكتروني (قالب)
 
 ## Architecture Overview
 

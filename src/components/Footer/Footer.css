@@ -63,7 +63,7 @@
 }
 
 .footer-about {
-  color: #94a3b8;
+  color: rgba(250, 249, 245, 0.6);
   line-height: 1.8;
   margin-bottom: 20px;
 }
@@ -99,12 +99,12 @@
 }
 
 .footer-links a {
-  color: #94a3b8;
+  color: rgba(250, 249, 245, 0.6);
   transition: all 0.3s ease;
 }
 
 .footer-links a:hover {
-  color: white;
+  color: var(--primary);
   padding-right: 5px;
 }
 
@@ -117,7 +117,7 @@
   align-items: center;
   gap: 12px;
   margin-bottom: 15px;
-  color: #94a3b8;
+  color: rgba(250, 249, 245, 0.6);
 }
 
 /* Bottom Bar */
@@ -128,7 +128,7 @@
 }
 
 .footer-bottom p {
-  color: #94a3b8;
+  color: rgba(250, 249, 245, 0.6);
   font-size: 14px;
 }
 

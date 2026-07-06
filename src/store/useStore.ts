@@ -2,6 +2,24 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Product, CartItem, User, Category } from "../types";
 
+export interface StoreInfo {
+  storeName: string;
+  storeEmail: string;
+  storePhone: string;
+  storeAddress: string;
+  currency: string;
+  language: string;
+}
+
+export const DEFAULT_STORE_INFO: StoreInfo = {
+  storeName: "متجري",
+  storeEmail: "",
+  storePhone: "",
+  storeAddress: "",
+  currency: "SAR",
+  language: "ar",
+};
+
 interface StoreState {
   // Cart (يبقى محلي لأنه خاص بالمستخدم الحالي)
   cart: CartItem[];
@@ -24,6 +42,10 @@ interface StoreState {
   // Products (من Firestore)
   products: Product[];
   setProducts: (products: Product[]) => void;
+
+  // Store info / branding (من Firestore settings/store)
+  storeInfo: StoreInfo;
+  setStoreInfo: (info: Partial<StoreInfo>) => void;
 
   // Wishlist (المفضلة)
   wishlist: string[];
@@ -136,6 +158,11 @@ export const useStore = create<StoreState>()(
       products: [],
       setProducts: (products) => set({ products }),
 
+      // Store info
+      storeInfo: DEFAULT_STORE_INFO,
+      setStoreInfo: (info) =>
+        set((state) => ({ storeInfo: { ...state.storeInfo, ...info } })),
+
       // Wishlist
       wishlist: [],
       toggleWishlist: (productId) => {
@@ -156,7 +183,7 @@ export const useStore = create<StoreState>()(
       setSearchQuery: (query) => set({ searchQuery: query }),
     }),
     {
-      name: "jabory-store",
+      name: "estore",
       partialize: (state) => ({ cart: state.cart, wishlist: state.wishlist }),
     },
   ),

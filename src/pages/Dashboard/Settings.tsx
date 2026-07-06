@@ -11,7 +11,12 @@ import {
   Mail,
 } from "lucide-react";
 import { useStore } from "../../store/useStore";
-import { getSettings, updateSettings } from "../../services/firestore";
+import {
+  getSettings,
+  updateSettings,
+  getEmailSettings,
+  updateEmailSettings,
+} from "../../services/firestore";
 import { saveTamaraSettings, testTamaraConnection } from "../../services/tamara";
 import { saveTabbySettings, testTabbyConnection } from "../../services/tabby";
 import {
@@ -29,9 +34,9 @@ const Settings: React.FC = () => {
   const [activeTab, setActiveTab] = useState("store");
 
   const [storeSettings, setStoreSettings] = useState({
-    storeName: "جبوري للإلكترونيات",
-    storeEmail: "jaboor1994@gmail.com",
-    storePhone: "0556122411",
+    storeName: "متجري",
+    storeEmail: "",
+    storePhone: "",
     storeAddress: "المملكة العربية السعودية",
     currency: "SAR",
     language: "ar",
@@ -79,7 +84,7 @@ const Settings: React.FC = () => {
     smtpUser: "",
     smtpPassword: "",
     fromEmail: "",
-    fromName: "متجر جبوري",
+    fromName: "متجري",
   });
   const [emailLoading, setEmailLoading] = useState(false);
 
@@ -103,8 +108,10 @@ const Settings: React.FC = () => {
             setNotificationSettings(settings.notifications);
           if (settings.payment?.methods)
             setPaymentMethods(settings.payment.methods);
-          if (settings.email) setEmailSettings(settings.email);
         }
+        // Email SMTP settings live in a separate admin-only doc.
+        const email = await getEmailSettings();
+        if (email) setEmailSettings(email);
       } catch (error) {
         console.error("Error fetching settings:", error);
       }
@@ -784,7 +791,7 @@ const Settings: React.FC = () => {
                       onChange={(e) =>
                         setEmailSettings({ ...emailSettings, fromEmail: e.target.value })
                       }
-                      placeholder="noreply@jabory.com"
+                      placeholder="noreply@example.com"
                     />
                   </div>
                   <div className="form-group">
@@ -795,7 +802,7 @@ const Settings: React.FC = () => {
                       onChange={(e) =>
                         setEmailSettings({ ...emailSettings, fromName: e.target.value })
                       }
-                      placeholder="متجر جبوري"
+                      placeholder="متجري"
                     />
                   </div>
                 </div>
@@ -814,7 +821,7 @@ const Settings: React.FC = () => {
                     onClick={async () => {
                       setEmailLoading(true);
                       try {
-                        await updateSettings({ email: emailSettings });
+                        await updateEmailSettings(emailSettings);
                         alert("تم حفظ إعدادات البريد بنجاح");
                       } catch (error) {
                         console.error("Error saving email settings:", error);

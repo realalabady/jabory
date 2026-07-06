@@ -17,6 +17,12 @@ dist-ssr
 .env.local
 .env.production
 
+# Secrets / credentials (never commit)
+*.plist
+save-*-keys.*
+GoogleService-Info*.plist
+serviceAccount*.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

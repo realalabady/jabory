@@ -7,12 +7,14 @@ import {
   createOrUpdateUser,
   subscribeToProducts,
   subscribeToCategories,
+  subscribeToSettings,
 } from "./services/firestore";
 import { useStore } from "./store/useStore";
 
 // Layouts (loaded immediately - small components)
 import Header from "./components/Header/Header";
 import Footer from "./components/Footer/Footer";
+import { ToastProvider } from "./components/Toast/Toast";
 
 // Lazy loaded components
 const DashboardLayout = lazy(() => import("./components/DashboardLayout/DashboardLayout"));
@@ -34,6 +36,7 @@ const Privacy = lazy(() => import("./pages/Legal/Privacy"));
 const Shipping = lazy(() => import("./pages/Legal/Shipping"));
 const Returns = lazy(() => import("./pages/Legal/Returns"));
 const FAQ = lazy(() => import("./pages/Legal/FAQ"));
+const OrderConfirmation = lazy(() => import("./pages/OrderConfirmation/OrderConfirmation"));
 
 // Dashboard Pages - Lazy Loaded
 const DashboardHome = lazy(() => import("./pages/Dashboard/DashboardHome"));
@@ -88,10 +91,10 @@ const StoreLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 );
 
 const App: React.FC = () => {
-  const { setUser, setProducts, setCategories } = useStore();
+  const { setUser, setProducts, setCategories, setStoreInfo } = useStore();
   const [loading, setLoading] = useState(true);
 
-  // الاشتراك المركزي في المنتجات والتصنيفات
+  // الاشتراك المركزي في المنتجات والتصنيفات وإعدادات المتجر
   useEffect(() => {
     const unsubProducts = subscribeToProducts((products) =>
       setProducts(products),
@@ -99,11 +102,15 @@ const App: React.FC = () => {
     const unsubCategories = subscribeToCategories((categories) =>
       setCategories(categories),
     );
+    const unsubSettings = subscribeToSettings((settings) => {
+      if (settings?.store) setStoreInfo(settings.store);
+    });
     return () => {
       unsubProducts();
       unsubCategories();
+      unsubSettings();
     };
-  }, [setProducts, setCategories]);
+  }, [setProducts, setCategories, setStoreInfo]);
 
   // الحفاظ على جلسة المستخدم عند تحديث الصفحة
   useEffect(() => {
@@ -154,6 +161,7 @@ const App: React.FC = () => {
   }
 
   return (
+    <ToastProvider>
     <Router>
       <Suspense fallback={<PageLoader />}>
         <Routes>
@@ -196,6 +204,14 @@ const App: React.FC = () => {
         />
         <Route path="/checkout" element={<Checkout />} />
         <Route
+          path="/order-confirmation/:orderId"
+          element={
+            <StoreLayout>
+              <OrderConfirmation />
+            </StoreLayout>
+          }
+        />
+        <Route
           path="/products"
           element={
             <StoreLayout>
@@ -212,7 +228,7 @@ const App: React.FC = () => {
           }
         />
         <Route path="/account" element={<Account />} />
-        <Route path="/wishlist" element={<Account />} />
+        <Route path="/wishlist" element={<Account initialTab="wishlist" />} />
         <Route
           path="/contact"
           element={
@@ -276,6 +292,7 @@ const App: React.FC = () => {
         </Routes>
       </Suspense>
     </Router>
+    </ToastProvider>
   );
 };
 

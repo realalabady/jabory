@@ -97,7 +97,9 @@ export async function createTabbyCheckout(
  * التقاط/تأكيد الدفع
  */
 export async function captureTabbyPayment(
-  paymentId: string
+  paymentId: string,
+  firestoreOrderId?: string,
+  orderReferenceId?: string
 ): Promise<{
   id: string;
   status: string;
@@ -105,7 +107,7 @@ export async function captureTabbyPayment(
   currency: string;
 }> {
   const capture = httpsCallable(functions, "tabbyCapturePayment");
-  const result = await capture({ paymentId });
+  const result = await capture({ paymentId, firestoreOrderId, orderReferenceId });
   return result.data as any;
 }
 

@@ -244,7 +244,7 @@
 .tamara-details {
   margin-top: 1.5rem;
   padding: 1.5rem;
-  background: linear-gradient(135deg, #fef7ed 0%, #fdf2e6 100%);
+  background: var(--bg);
   border-radius: 12px;
   border: 2px solid #f5a623;
 }
@@ -280,7 +280,7 @@
   background: white;
   border-radius: 8px;
   min-width: 100px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  box-shadow: 0 2px 4px rgba(20, 20, 19, 0.06);
 }
 
 .tamara-installments .label {
@@ -307,7 +307,7 @@
   font-size: 1rem;
   font-weight: 600;
   color: white;
-  background: linear-gradient(135deg, #f5a623 0%, #e8941f 100%);
+  background: var(--primary);
   border: none;
   border-radius: 8px;
   cursor: pointer;
@@ -319,7 +319,7 @@
 }
 
 .btn-tamara:hover:not(:disabled) {
-  background: linear-gradient(135deg, #e8941f 0%, #d18419 100%);
+  background: var(--primary);
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(245, 166, 35, 0.3);
 }
@@ -339,10 +339,10 @@
 .tabby-details {
   margin-top: 1.5rem;
   padding: 1.5rem;
-  background: linear-gradient(145deg, #f0fdf9 0%, #e6faf4 50%, #d9f7ec 100%);
+  background: var(--bg);
   border-radius: 16px;
   border: 2px solid #1dd1a1;
-  box-shadow: 0 4px 20px rgba(29, 209, 161, 0.15);
+  box-shadow: var(--shadow-sm);
 }
 
 .tabby-info {
@@ -425,7 +425,7 @@
   font-size: 1.05rem;
   font-weight: 700;
   color: #fff;
-  background: linear-gradient(135deg, #1dd1a1 0%, #00b894 100%);
+  background: var(--accent-green);
   border: none;
   border-radius: 12px;
   cursor: pointer;
@@ -438,7 +438,7 @@
 }
 
 .btn-tabby:hover:not(:disabled) {
-  background: linear-gradient(135deg, #00b894 0%, #00a085 100%);
+  background: var(--accent-green);
   transform: translateY(-3px);
   box-shadow: 0 6px 20px rgba(29, 209, 161, 0.4);
 }
@@ -461,7 +461,7 @@
   gap: 0.75rem;
   padding: 1rem 1.5rem;
   margin: 1rem auto;
-  background: linear-gradient(135deg, #fef7ed 0%, #fdf2e6 100%);
+  background: var(--bg);
   border: 2px solid #f5a623;
   border-radius: 12px;
   max-width: fit-content;
@@ -622,7 +622,7 @@
   align-items: center;
   justify-content: center;
   margin: 0 auto 1.5rem;
-  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  background: var(--accent-green);
   color: white;
   border-radius: 50%;
   animation: successBounce 0.6s ease 0.3s both;

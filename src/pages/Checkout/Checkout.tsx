@@ -15,13 +15,14 @@ import { useStore } from "../../store/useStore";
 import {
   addOrder,
   getSettings,
-  decrementStock,
+  updateOrderData,
 } from "../../services/firestore";
 import { createTamaraCheckout, authorizeTamaraOrder } from "../../services/tamara";
 import { createTabbyCheckout, captureTabbyPayment } from "../../services/tabby";
 import Header from "../../components/Header/Header";
 import Footer from "../../components/Footer/Footer";
 import PayPalCardForm from "../../components/PayPalCardForm/PayPalCardForm";
+import { useToast } from "../../components/Toast/Toast";
 import "./Checkout.css";
 
 interface ShippingSettings {
@@ -37,10 +38,20 @@ interface PaymentMethod {
   enabled: boolean;
 }
 
+// إنشاء معرف طلب فريد باستخدام crypto.randomUUID
+const generateOrderId = (): string => {
+  const uuid =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `ORD-${uuid}`;
+};
+
 const Checkout: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { cart, user, clearCart, getCartTotal } = useStore();
+  const { cart, user, clearCart, getCartTotal, storeInfo } = useStore();
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1);
   const [orderPlaced, setOrderPlaced] = useState(false);
@@ -54,13 +65,16 @@ const Checkout: React.FC = () => {
     enableFreeShipping: true,
     estimatedDays: "3-5",
   });
-  const [paymentMethods] = useState<PaymentMethod[]>([
+  const DEFAULT_PAYMENT_METHODS: PaymentMethod[] = [
     { id: "cash", name: "الدفع عند الاستلام", enabled: true },
     { id: "bank", name: "التحويل البنكي", enabled: true },
     { id: "card", name: "بطاقة ائتمان", enabled: true },
     { id: "tamara", name: "تمارا - قسّمها على 3", enabled: true },
     { id: "tabby", name: "تابي - قسّمها على 4", enabled: true },
-  ]);
+  ];
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(
+    DEFAULT_PAYMENT_METHODS
+  );
 
   const [formData, setFormData] = useState({
     fullName: "",
@@ -87,8 +101,10 @@ const Checkout: React.FC = () => {
           if (settings.shipping) {
             setShippingSettings(settings.shipping);
           }
-          // نتجاهل إعدادات الدفع من Firestore ونستخدم الافتراضية مع البطاقة مفعّلة
-          // لأن Firestore فيه بيانات قديمة
+          // قراءة طرق الدفع المفعّلة من الإعدادات مع الرجوع للافتراضية
+          if (settings.payment?.methods && settings.payment.methods.length > 0) {
+            setPaymentMethods(settings.payment.methods);
+          }
         }
       } catch (error) {
         console.error("Error fetching settings:", error);
@@ -119,40 +135,40 @@ const Checkout: React.FC = () => {
       const tamaraOrderId = searchParams.get("tamara_order_id");
       const paymentStatus = searchParams.get("paymentStatus");
       const pendingOrder = searchParams.get("order_ref");
+      const orderDoc = searchParams.get("order_doc");
 
       if (tamaraOrderId && paymentStatus === "approved" && pendingOrder && user) {
         setTamaraProcessing(true);
         setStep(2);
 
         try {
-          // استرجاع بيانات الطلب المحفوظة
-          const savedOrderData = localStorage.getItem(`tamara_order_${pendingOrder}`);
-          if (!savedOrderData) {
-            throw new Error("لم يتم العثور على بيانات الطلب");
+          // الطلب موجود مسبقاً في Firestore (أُنشئ قبل إعادة التوجيه).
+          // نستخدم order_doc، ونرجع للتخزين المحلي كنسخة احتياطية فقط.
+          let firestoreOrderId = orderDoc || undefined;
+          if (!firestoreOrderId) {
+            const savedOrderData = localStorage.getItem(
+              `tamara_order_${pendingOrder}`
+            );
+            if (savedOrderData) {
+              const parsed = JSON.parse(savedOrderData);
+              firestoreOrderId = parsed.firestoreOrderId;
+            }
           }
 
-          const orderDataFromStorage = JSON.parse(savedOrderData);
-
-          // تأكيد الطلب مع Tamara
-          const authorizeResult = await authorizeTamaraOrder(tamaraOrderId);
+          // تأكيد الطلب مع Tamara (يتحقق الخادم من الملكية والمبلغ)
+          const authorizeResult = await authorizeTamaraOrder(
+            tamaraOrderId,
+            firestoreOrderId,
+            pendingOrder
+          );
           console.log("Tamara authorize result:", authorizeResult);
 
-          // إنشاء الطلب في Firestore
-          const orderData = {
-            ...orderDataFromStorage,
-            paymentMethod: "tamara",
-            paymentStatus: "paid" as const,
-            tamaraOrderId: tamaraOrderId,
-            tamaraStatus: authorizeResult.status,
-            paidAt: new Date(),
-          };
-
-          await addOrder(orderData);
-
-          // تخفيض المخزون
-          const cartItems = orderDataFromStorage.items || [];
-          for (const item of cartItems) {
-            await decrementStock(item.productId, item.quantity);
+          // تحديث الطلب الموجود إلى مدفوع (احتياطياً إن لم يحدّثه الخادم)
+          if (firestoreOrderId) {
+            await updateOrderData(firestoreOrderId, {
+              paymentStatus: "paid",
+              paidAt: new Date(),
+            });
           }
 
           // تنظيف البيانات المحفوظة
@@ -163,21 +179,28 @@ const Checkout: React.FC = () => {
           clearCart();
           setStep(3);
 
-          // إزالة معاملات URL
-          navigate("/checkout", { replace: true });
+          if (firestoreOrderId) {
+            navigate(`/order-confirmation/${firestoreOrderId}`, { replace: true });
+          } else {
+            navigate("/checkout", { replace: true });
+          }
         } catch (error) {
           console.error("Error processing Tamara payment:", error);
-          alert("حدث خطأ أثناء معالجة الدفع بتمارا. يرجى التواصل معنا.");
+          showToast(
+            "حدث خطأ أثناء معالجة الدفع بتمارا. يرجى التواصل معنا.",
+            "error"
+          );
         } finally {
           setTamaraProcessing(false);
         }
       } else if (paymentStatus === "declined" || paymentStatus === "failed") {
-        alert("تم رفض الدفع من تمارا. يرجى المحاولة مرة أخرى.");
+        showToast("تم رفض الدفع من تمارا. يرجى المحاولة مرة أخرى.", "error");
         navigate("/checkout", { replace: true });
       }
     };
 
     handleTamaraCallback();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, user, clearCart, navigate]);
 
   // التعامل مع العودة من Tabby
@@ -186,40 +209,40 @@ const Checkout: React.FC = () => {
       const tabbyPaymentId = searchParams.get("payment_id");
       const tabbyStatus = searchParams.get("status");
       const pendingOrder = searchParams.get("order_ref");
+      const orderDoc = searchParams.get("order_doc");
 
       if (tabbyPaymentId && tabbyStatus === "AUTHORIZED" && pendingOrder && user) {
         setTabbyProcessing(true);
         setStep(2);
 
         try {
-          // استرجاع بيانات الطلب المحفوظة
-          const savedOrderData = localStorage.getItem(`tabby_order_${pendingOrder}`);
-          if (!savedOrderData) {
-            throw new Error("لم يتم العثور على بيانات الطلب");
+          // الطلب موجود مسبقاً في Firestore. نستخدم order_doc ونرجع للتخزين
+          // المحلي كنسخة احتياطية فقط.
+          let firestoreOrderId = orderDoc || undefined;
+          if (!firestoreOrderId) {
+            const savedOrderData = localStorage.getItem(
+              `tabby_order_${pendingOrder}`
+            );
+            if (savedOrderData) {
+              const parsed = JSON.parse(savedOrderData);
+              firestoreOrderId = parsed.firestoreOrderId;
+            }
           }
 
-          const orderDataFromStorage = JSON.parse(savedOrderData);
-
-          // تأكيد الدفع مع Tabby
-          const captureResult = await captureTabbyPayment(tabbyPaymentId);
+          // تأكيد الدفع مع Tabby (يتحقق الخادم من الملكية والمبلغ)
+          const captureResult = await captureTabbyPayment(
+            tabbyPaymentId,
+            firestoreOrderId,
+            pendingOrder
+          );
           console.log("Tabby capture result:", captureResult);
 
-          // إنشاء الطلب في Firestore
-          const orderData = {
-            ...orderDataFromStorage,
-            paymentMethod: "tabby",
-            paymentStatus: "paid" as const,
-            tabbyPaymentId: tabbyPaymentId,
-            tabbyStatus: captureResult.status,
-            paidAt: new Date(),
-          };
-
-          await addOrder(orderData);
-
-          // تخفيض المخزون
-          const cartItems = orderDataFromStorage.items || [];
-          for (const item of cartItems) {
-            await decrementStock(item.productId, item.quantity);
+          // تحديث الطلب الموجود إلى مدفوع (احتياطياً إن لم يحدّثه الخادم)
+          if (firestoreOrderId) {
+            await updateOrderData(firestoreOrderId, {
+              paymentStatus: "paid",
+              paidAt: new Date(),
+            });
           }
 
           // تنظيف البيانات المحفوظة
@@ -230,21 +253,28 @@ const Checkout: React.FC = () => {
           clearCart();
           setStep(3);
 
-          // إزالة معاملات URL
-          navigate("/checkout", { replace: true });
+          if (firestoreOrderId) {
+            navigate(`/order-confirmation/${firestoreOrderId}`, { replace: true });
+          } else {
+            navigate("/checkout", { replace: true });
+          }
         } catch (error) {
           console.error("Error processing Tabby payment:", error);
-          alert("حدث خطأ أثناء معالجة الدفع بتابي. يرجى التواصل معنا.");
+          showToast(
+            "حدث خطأ أثناء معالجة الدفع بتابي. يرجى التواصل معنا.",
+            "error"
+          );
         } finally {
           setTabbyProcessing(false);
         }
       } else if (tabbyStatus === "REJECTED" || tabbyStatus === "EXPIRED") {
-        alert("تم رفض الدفع من تابي. يرجى المحاولة مرة أخرى.");
+        showToast("تم رفض الدفع من تابي. يرجى المحاولة مرة أخرى.", "error");
         navigate("/checkout", { replace: true });
       }
     };
 
     handleTabbyCallback();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, user, clearCart, navigate]);
 
   // التحقق من السلة
@@ -338,6 +368,9 @@ const Checkout: React.FC = () => {
         subtotal: subtotal,
         shippingCost: shipping,
         status: "pending" as const,
+        paymentMethod: "tamara",
+        paymentStatus: "pending" as const,
+        orderReference,
         shippingAddress: `${formData.city}، ${formData.district}، ${formData.street}${formData.building ? `، مبنى ${formData.building}` : ""}${formData.nationalAddress ? `، العنوان الوطني: ${formData.nationalAddress}` : ""}`,
         address: {
           fullName: formData.fullName,
@@ -353,8 +386,15 @@ const Checkout: React.FC = () => {
         updatedAt: new Date(),
       };
 
-      // حفظ بيانات الطلب مؤقتاً
-      localStorage.setItem(`tamara_order_${orderReference}`, JSON.stringify(orderDataToSave));
+      // إنشاء الطلب في Firestore قبل إعادة التوجيه (حالة معلّقة).
+      // هذا يضمن وجود الطلب حتى لو عاد المستخدم من متصفح مختلف أو مسح التخزين.
+      const firestoreOrderId = await addOrder(orderDataToSave);
+
+      // حفظ بيانات الطلب مؤقتاً كنسخة احتياطية فقط
+      localStorage.setItem(
+        `tamara_order_${orderReference}`,
+        JSON.stringify({ ...orderDataToSave, firestoreOrderId })
+      );
 
       // إنشاء عنوان العودة الحالي
       const baseUrl = window.location.origin;
@@ -397,17 +437,20 @@ const Checkout: React.FC = () => {
             : `+966${formData.phone.replace(/^0/, "")}`,
         },
         shippingAmount: shipping,
-        successUrl: `${baseUrl}/checkout?paymentStatus=approved&order_ref=${orderReference}`,
-        failureUrl: `${baseUrl}/checkout?paymentStatus=failed&order_ref=${orderReference}`,
-        cancelUrl: `${baseUrl}/checkout?paymentStatus=cancelled&order_ref=${orderReference}`,
-        description: `طلب من جبوري للإلكترونيات #${orderReference}`,
+        successUrl: `${baseUrl}/checkout?paymentStatus=approved&order_ref=${orderReference}&order_doc=${firestoreOrderId}`,
+        failureUrl: `${baseUrl}/checkout?paymentStatus=failed&order_ref=${orderReference}&order_doc=${firestoreOrderId}`,
+        cancelUrl: `${baseUrl}/checkout?paymentStatus=cancelled&order_ref=${orderReference}&order_doc=${firestoreOrderId}`,
+        description: `طلب #${orderReference}`,
       });
 
       // توجيه المستخدم لصفحة تمارا
       window.location.href = checkoutResult.checkout_url;
     } catch (error: any) {
       console.error("Error creating Tamara checkout:", error);
-      alert(`حدث خطأ أثناء إنشاء جلسة الدفع: ${error.message || "خطأ غير معروف"}`);
+      showToast(
+        `حدث خطأ أثناء إنشاء جلسة الدفع: ${error.message || "خطأ غير معروف"}`,
+        "error"
+      );
       setTamaraProcessing(false);
     }
   };
@@ -460,6 +503,9 @@ const Checkout: React.FC = () => {
         subtotal: subtotal,
         shippingCost: shipping,
         status: "pending" as const,
+        paymentMethod: "tabby",
+        paymentStatus: "pending" as const,
+        orderReference,
         shippingAddress: `${formData.city}، ${formData.district}، ${formData.street}${formData.building ? `، مبنى ${formData.building}` : ""}${formData.nationalAddress ? `، العنوان الوطني: ${formData.nationalAddress}` : ""}`,
         address: {
           fullName: formData.fullName,
@@ -475,8 +521,14 @@ const Checkout: React.FC = () => {
         updatedAt: new Date(),
       };
 
-      // حفظ بيانات الطلب مؤقتاً
-      localStorage.setItem(`tabby_order_${orderReference}`, JSON.stringify(orderDataToSave));
+      // إنشاء الطلب في Firestore قبل إعادة التوجيه (حالة معلّقة)
+      const firestoreOrderId = await addOrder(orderDataToSave);
+
+      // حفظ بيانات الطلب مؤقتاً كنسخة احتياطية فقط
+      localStorage.setItem(
+        `tabby_order_${orderReference}`,
+        JSON.stringify({ ...orderDataToSave, firestoreOrderId })
+      );
 
       // إنشاء عنوان العودة الحالي
       const baseUrl = window.location.origin;
@@ -509,10 +561,10 @@ const Checkout: React.FC = () => {
           address: `${formData.district}، ${formData.street}`,
           zip: formData.nationalAddress || "00000",
         },
-        success_url: `${baseUrl}/checkout?status=AUTHORIZED&order_ref=${orderReference}`,
-        cancel_url: `${baseUrl}/checkout?status=REJECTED&order_ref=${orderReference}`,
-        failure_url: `${baseUrl}/checkout?status=REJECTED&order_ref=${orderReference}`,
-        description: `طلب من جبوري للإلكترونيات #${orderReference}`,
+        success_url: `${baseUrl}/checkout?status=AUTHORIZED&order_ref=${orderReference}&order_doc=${firestoreOrderId}`,
+        cancel_url: `${baseUrl}/checkout?status=REJECTED&order_ref=${orderReference}&order_doc=${firestoreOrderId}`,
+        failure_url: `${baseUrl}/checkout?status=REJECTED&order_ref=${orderReference}&order_doc=${firestoreOrderId}`,
+        description: `طلب #${orderReference}`,
       });
 
       console.log("Tabby checkout result:", JSON.stringify(checkoutResult, null, 2));
@@ -544,7 +596,10 @@ const Checkout: React.FC = () => {
       window.location.href = checkoutUrl;
     } catch (error: any) {
       console.error("Error creating Tabby checkout:", error);
-      alert(`حدث خطأ أثناء إنشاء جلسة الدفع بتابي: ${error.message || "خطأ غير معروف"}`);
+      showToast(
+        `حدث خطأ أثناء إنشاء جلسة الدفع بتابي: ${error.message || "خطأ غير معروف"}`,
+        "error"
+      );
       setTabbyProcessing(false);
     }
   };
@@ -570,9 +625,10 @@ const Checkout: React.FC = () => {
         }
       }
       if (stockErrors.length > 0) {
-        alert(
+        showToast(
           "بعض المنتجات غير متوفرة بالكمية المطلوبة:\n" +
             stockErrors.join("\n"),
+          "error"
         );
         setLoading(false);
         return;
@@ -611,27 +667,19 @@ const Checkout: React.FC = () => {
         updatedAt: new Date(),
       };
 
-      await addOrder(orderData);
-
-      // تخفيض المخزون ذرياً بعد إتمام الطلب
-      for (const item of cart) {
-        await decrementStock(item.product.id, item.quantity);
-      }
+      // المخزون يُخصم على الخادم داخل onOrderCreated (معاملة ذرية)
+      const newOrderId = await addOrder(orderData);
 
       setOrderPlaced(true);
       clearCart();
       setStep(3);
+      navigate(`/order-confirmation/${newOrderId}`, { replace: true });
     } catch (error) {
       console.error("Error creating order:", error);
-      alert("حدث خطأ أثناء إنشاء الطلب. يرجى المحاولة مرة أخرى.");
+      showToast("حدث خطأ أثناء إنشاء الطلب. يرجى المحاولة مرة أخرى.", "error");
     } finally {
       setLoading(false);
     }
-  };
-
-  // إنشاء معرف طلب فريد للدفع بالبطاقة
-  const generateOrderId = () => {
-    return `JAB-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   };
 
   // التعامل مع نجاح الدفع بالبطاقة
@@ -660,9 +708,10 @@ const Checkout: React.FC = () => {
         }
       }
       if (stockErrors.length > 0) {
-        alert(
+        showToast(
           "بعض المنتجات غير متوفرة بالكمية المطلوبة:\n" +
             stockErrors.join("\n"),
+          "error"
         );
         setLoading(false);
         return;
@@ -704,19 +753,19 @@ const Checkout: React.FC = () => {
         updatedAt: new Date(),
       };
 
-      await addOrder(orderData);
-
-      // تخفيض المخزون
-      for (const item of cart) {
-        await decrementStock(item.product.id, item.quantity);
-      }
+      // المخزون يُخصم على الخادم داخل onOrderCreated (معاملة ذرية)
+      const newOrderId = await addOrder(orderData);
 
       setOrderPlaced(true);
       clearCart();
       setStep(3);
+      navigate(`/order-confirmation/${newOrderId}`, { replace: true });
     } catch (error) {
       console.error("Error creating order after card payment:", error);
-      alert("تم الدفع بنجاح ولكن حدث خطأ في حفظ الطلب. يرجى التواصل معنا.");
+      showToast(
+        "تم الدفع بنجاح ولكن حدث خطأ في حفظ الطلب. يرجى التواصل معنا.",
+        "error"
+      );
     } finally {
       setLoading(false);
     }
@@ -725,7 +774,7 @@ const Checkout: React.FC = () => {
   // التعامل مع خطأ الدفع بالبطاقة
   const handleCardPaymentError = (error: string) => {
     console.error("Card payment error:", error);
-    alert(`خطأ في الدفع: ${error}`);
+    showToast(`خطأ في الدفع: ${error}`, "error");
   };
 
   // تهيئة معرف الطلب للدفع بالبطاقة
@@ -1031,7 +1080,7 @@ const Checkout: React.FC = () => {
                             <strong>البنك:</strong> البنك الأهلي
                           </p>
                           <p>
-                            <strong>اسم الحساب:</strong> جبوري للإلكترونيات
+                            <strong>اسم الحساب:</strong> {storeInfo.storeName || "متجري"}
                           </p>
                           <p>
                             <strong>رقم الآيبان:</strong>{" "}
@@ -1048,6 +1097,10 @@ const Checkout: React.FC = () => {
                           amount={total}
                           currency="SAR"
                           orderId={pendingOrderId}
+                          items={cart.map((item) => ({
+                            productId: item.product.id,
+                            quantity: item.quantity,
+                          }))}
                           onSuccess={handleCardPaymentSuccess}
                           onError={handleCardPaymentError}
                           onProcessing={setCardProcessing}

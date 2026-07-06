@@ -168,7 +168,7 @@
 
 .cj-badge {
   padding: 2px 8px;
-  background: #f59e0b;
+  background: var(--primary);
   color: white;
   border-radius: 4px;
   font-size: 10px;
@@ -267,7 +267,7 @@
 
 /* الرصيد */
 .balance-card {
-  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  background: var(--accent-blue);
   color: white;
   border-radius: 16px;
   padding: 24px;

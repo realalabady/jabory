@@ -27,11 +27,16 @@ import Header from "../../components/Header/Header";
 import Footer from "../../components/Footer/Footer";
 import "./Account.css";
 
-const Account: React.FC = () => {
+interface AccountProps {
+  initialTab?: "profile" | "orders" | "addresses" | "wishlist";
+}
+
+const Account: React.FC<AccountProps> = ({ initialTab }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, setUser, wishlist, toggleWishlist, products } = useStore();
   const [activeTab, setActiveTab] = useState(() => {
+    if (initialTab) return initialTab;
     return location.pathname === "/wishlist" ? "wishlist" : "profile";
   });
   const [editing, setEditing] = useState(false);

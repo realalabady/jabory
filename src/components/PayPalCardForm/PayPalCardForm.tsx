@@ -10,6 +10,7 @@ interface PayPalCardFormProps {
   amount: number;
   currency?: string;
   orderId: string;
+  items: { productId: string; quantity: number }[];
   onSuccess: (captureData: {
     paypalOrderId: string;
     captureId: string;
@@ -23,6 +24,7 @@ const PayPalCardForm: React.FC<PayPalCardFormProps> = ({
   amount,
   currency = "SAR",
   orderId,
+  items,
   onSuccess,
   onError,
   onProcessing,
@@ -103,7 +105,8 @@ const PayPalCardForm: React.FC<PayPalCardFormProps> = ({
                 amount,
                 currency,
                 orderId,
-                description: `طلب من جبوري #${orderId}`,
+                items,
+                description: `طلب #${orderId}`,
               });
               return result.id;
             } catch (err: any) {
@@ -117,9 +120,10 @@ const PayPalCardForm: React.FC<PayPalCardFormProps> = ({
           onApprove: async (data: { orderID: string }) => {
             try {
               onProcessing?.(true);
+              // ملاحظة: طلب Firestore يُنشأ بعد نجاح الالتقاط في هذا التدفق،
+              // لذا لا نمرر firestoreOrderId هنا. التحقق يتم عبر سجل الدفع المعلّق.
               const result = await capturePayPalOrder({
                 paypalOrderId: data.orderID,
-                firestoreOrderId: orderId,
               });
 
               if (result.status === "COMPLETED") {
@@ -168,6 +172,7 @@ const PayPalCardForm: React.FC<PayPalCardFormProps> = ({
     return () => {
       mounted.current = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amount, currency, orderId]);
 
   return (

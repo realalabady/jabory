@@ -457,14 +457,6 @@ export interface StoreSettings {
   payment?: {
     methods: { id: string; name: string; enabled: boolean }[];
   };
-  email?: {
-    smtpHost: string;
-    smtpPort: number;
-    smtpUser: string;
-    smtpPassword: string;
-    fromEmail: string;
-    fromName: string;
-  };
   updatedAt?: Date;
 }
 
@@ -502,6 +494,42 @@ export const subscribeToSettings = (
       callback(null);
     }
   });
+};
+
+// ==================== Email (SMTP) Settings ====================
+// Stored in a separate, admin-only `settings/email` document so SMTP
+// credentials are NEVER exposed to public visitors.
+
+export interface EmailSettings {
+  smtpHost: string;
+  smtpPort: number;
+  smtpUser: string;
+  smtpPassword: string;
+  fromEmail: string;
+  fromName: string;
+}
+
+export const getEmailSettings = async (): Promise<EmailSettings | null> => {
+  const docRef = doc(db, "settings", "email");
+  const docSnap = await getDoc(docRef);
+  if (docSnap.exists()) {
+    return docSnap.data() as EmailSettings;
+  }
+  return null;
+};
+
+export const updateEmailSettings = async (
+  settings: Partial<EmailSettings>,
+): Promise<void> => {
+  const docRef = doc(db, "settings", "email");
+  await setDoc(
+    docRef,
+    {
+      ...settings,
+      updatedAt: Timestamp.now(),
+    },
+    { merge: true },
+  );
 };
 
 // ==================== Contact Messages ====================

@@ -1,31 +1,48 @@
-@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap');
+/* Fonts are loaded via <link> in index.html (non render-blocking). */
 
 :root {
-  --primary: #1a5f7a;
-  --primary-dark: #134b5f;
-  --secondary: #ffc93c;
-  --success: #22c55e;
-  --warning: #ffc93c;
-  --danger: #ef4444;
-  --dark: #1a3c4d;
-  --light: #f8fafc;
-  --gray: #64748b;
-  --border: #e2e8f0;
-  
-  /* Premium Gradients */
-  --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  --gradient-success: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-  --gradient-danger: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  --gradient-gold: linear-gradient(135deg, #c9a227 0%, #f4d03f 50%, #c9a227 100%);
-  --gradient-dark: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-  
-  /* Premium Shadows */
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
-  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.15);
-  --shadow-primary: 0 8px 25px rgba(102, 126, 234, 0.35);
-  --shadow-success: 0 8px 25px rgba(34, 197, 94, 0.35);
-  --shadow-danger: 0 8px 25px rgba(239, 68, 68, 0.35);
+  /* Warm calm palette (Anthropic-inspired) */
+  --bg: #faf9f5;
+  --surface: #ffffff;
+  --ink: #141413;
+  --ink-soft: #52514d;
+  --mid: #b0aea5;
+  --line: #e8e6dc;
+
+  --primary: #d97757;
+  --primary-dark: #c25d3d;
+  --accent-blue: #6a9bcc;
+  --accent-green: #788c5d;
+  --danger: #c0392b;
+
+  /* Legacy variable names mapped to the new palette */
+  --secondary: #6a9bcc;
+  --success: #788c5d;
+  --warning: #d97757;
+  --dark: #141413;
+  --light: #faf9f5;
+  --gray: #52514d;
+  --border: #e8e6dc;
+
+  /* Radii */
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+
+  /* Flat "gradients" (kept as variable names so references don't break) */
+  --gradient-primary: #d97757;
+  --gradient-success: #788c5d;
+  --gradient-danger: #c0392b;
+  --gradient-gold: #d97757;
+  --gradient-dark: #141413;
+
+  /* Soft shadows only */
+  --shadow-sm: 0 1px 2px rgba(20, 20, 19, 0.06);
+  --shadow-md: 0 4px 16px rgba(20, 20, 19, 0.08);
+  --shadow-lg: 0 4px 16px rgba(20, 20, 19, 0.08);
+  --shadow-primary: 0 4px 16px rgba(20, 20, 19, 0.08);
+  --shadow-success: 0 4px 16px rgba(20, 20, 19, 0.08);
+  --shadow-danger: 0 4px 16px rgba(20, 20, 19, 0.08);
 }
 
 * {
@@ -36,10 +53,21 @@
 
 body {
   font-family: 'Tajawal', sans-serif;
-  background-color: var(--light);
-  color: var(--dark);
+  background-color: var(--bg);
+  color: var(--ink);
   direction: rtl;
-  line-height: 1.6;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--ink);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+h1, h2 {
+  text-wrap: balance;
 }
 
 a {
@@ -52,29 +80,54 @@ button {
   font-family: inherit;
 }
 
+/* Global focus-visible fallback for keyboard users */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Respect users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Tabular numerals for prices/amounts */
+.price,
+.product-price,
+.item-price,
+.order-total,
+.cart-total {
+  font-variant-numeric: tabular-nums;
+}
+
 input, select, textarea {
   font-family: inherit;
 }
 
-/* Premium Scrollbar */
+/* Flat scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
-  border-radius: 4px;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #94a3b8 0%, #64748b 100%);
+  background: var(--mid);
   border-radius: 4px;
-  transition: background 0.3s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+  background: var(--ink-soft);
 }
 
 /* Container */
@@ -86,120 +139,102 @@ input, select, textarea {
 }
 
 /* ============================================
-   🎨 PREMIUM BUTTONS
+   BUTTONS
    ============================================ */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 14px 28px;
-  border-radius: 12px;
+  padding: 10px 20px;
+  border-radius: 10px;
   font-weight: 600;
-  font-size: 14px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 15px;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
   border: none;
-  position: relative;
-  overflow: hidden;
 }
 
-.btn::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-  transition: left 0.5s ease;
-}
-
-.btn:hover::before {
-  left: 100%;
+.btn:active {
+  transform: scale(0.98);
 }
 
 .btn-primary {
-  background: var(--gradient-primary);
-  color: white;
-  box-shadow: var(--shadow-primary);
+  background: var(--primary);
+  color: #fff;
 }
 
 .btn-primary:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 35px rgba(102, 126, 234, 0.5);
+  background: var(--primary-dark);
 }
 
 .btn-secondary {
-  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
-  color: white;
-  box-shadow: 0 8px 25px rgba(249, 115, 22, 0.35);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
 }
 
 .btn-secondary:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 35px rgba(249, 115, 22, 0.5);
+  border-color: var(--mid);
 }
 
 .btn-success {
-  background: var(--gradient-success);
-  color: white;
-  box-shadow: var(--shadow-success);
+  background: var(--accent-green);
+  color: #fff;
 }
 
 .btn-success:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 35px rgba(34, 197, 94, 0.5);
+  background: #67784f;
 }
 
 .btn-outline {
   background: transparent;
-  border: 2px solid #667eea;
-  color: #667eea;
+  border: 1px solid var(--primary);
+  color: var(--primary);
 }
 
 .btn-outline:hover {
-  background: var(--gradient-primary);
-  color: white;
-  border-color: transparent;
-  transform: translateY(-3px);
-  box-shadow: var(--shadow-primary);
+  background: var(--primary);
+  color: #fff;
 }
 
 .btn-danger {
-  background: var(--gradient-danger);
-  color: white;
-  box-shadow: var(--shadow-danger);
+  background: var(--danger);
+  color: #fff;
 }
 
 .btn-danger:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 35px rgba(239, 68, 68, 0.5);
+  background: #a5302299;
+  background: #9c2c1f;
 }
 
 .btn-ghost {
-  background: rgba(102, 126, 234, 0.1);
-  color: #667eea;
+  background: rgba(217, 119, 87, 0.1);
+  color: var(--primary);
   border: none;
 }
 
 .btn-ghost:hover {
-  background: rgba(102, 126, 234, 0.2);
+  background: rgba(217, 119, 87, 0.18);
 }
 
 .btn-sm {
-  padding: 10px 18px;
-  font-size: 13px;
-  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 14px;
+  border-radius: 8px;
 }
 
 .btn-lg {
-  padding: 18px 36px;
+  padding: 14px 28px;
   font-size: 16px;
-  border-radius: 14px;
+  border-radius: 12px;
 }
 
 /* ============================================
-   📝 PREMIUM FORM ELEMENTS
+   FORM ELEMENTS
    ============================================ */
 .form-group {
   margin-bottom: 24px;
@@ -207,48 +242,49 @@ input, select, textarea {
 
 .form-label {
   display: block;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   font-weight: 600;
-  color: var(--dark);
+  color: var(--ink-soft);
   font-size: 14px;
 }
 
 .form-input {
   width: 100%;
-  padding: 14px 18px;
-  border: 2px solid #e2e8f0;
-  border-radius: 12px;
-  font-size: 14px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  background: linear-gradient(135deg, #ffffff 0%, #fafbfc 100%);
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 15px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+  background: var(--surface);
+  color: var(--ink);
 }
 
 .form-input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.15);
-  background: white;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.15);
 }
 
 .form-input:hover:not(:focus) {
-  border-color: #cbd5e1;
+  border-color: var(--mid);
 }
 
 .form-input::placeholder {
-  color: #94a3b8;
+  color: var(--mid);
 }
 
 .form-select {
   width: 100%;
-  padding: 14px 18px;
-  border: 2px solid #e2e8f0;
-  border-radius: 12px;
-  font-size: 14px;
-  background: linear-gradient(135deg, #ffffff 0%, #fafbfc 100%);
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 15px;
+  background: var(--surface);
+  color: var(--ink);
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2352514d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: left 12px center;
   background-size: 18px;
@@ -256,49 +292,56 @@ input, select, textarea {
 
 .form-select:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.15);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.15);
 }
 
 .form-textarea {
   width: 100%;
-  padding: 14px 18px;
-  border: 2px solid #e2e8f0;
-  border-radius: 12px;
-  font-size: 14px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 15px;
   resize: vertical;
   min-height: 140px;
-  transition: all 0.3s ease;
-  background: linear-gradient(135deg, #ffffff 0%, #fafbfc 100%);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+  background: var(--surface);
+  color: var(--ink);
 }
 
 .form-textarea:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.15);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.15);
+}
+
+.form-error {
+  color: var(--danger);
+  font-size: 13px;
+  margin-top: 6px;
 }
 
 /* ============================================
-   🎴 PREMIUM CARDS
+   CARDS
    ============================================ */
 .card {
-  background: white;
-  border-radius: 20px;
-  box-shadow: var(--shadow-md);
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.04);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid var(--line);
+  transition: box-shadow 150ms ease, transform 150ms ease;
 }
 
 .card:hover {
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-md);
   transform: translateY(-2px);
 }
 
 .card-header {
   padding: 24px;
-  border-bottom: 1px solid #f1f5f9;
-  background: linear-gradient(135deg, #fafbfc 0%, #f8fafc 100%);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
 }
 
 .card-body {
@@ -355,7 +398,7 @@ input, select, textarea {
   }
 }
 
-/* Badges */
+/* Badges — soft tinted pills */
 .badge {
   display: inline-block;
   padding: 4px 12px;
@@ -365,23 +408,28 @@ input, select, textarea {
 }
 
 .badge-primary {
-  background: rgba(37, 99, 235, 0.1);
+  background: rgba(217, 119, 87, 0.12);
   color: var(--primary);
 }
 
 .badge-success {
-  background: rgba(34, 197, 94, 0.1);
-  color: var(--success);
+  background: rgba(120, 140, 93, 0.12);
+  color: var(--accent-green);
 }
 
 .badge-warning {
-  background: rgba(234, 179, 8, 0.1);
-  color: var(--warning);
+  background: rgba(217, 119, 87, 0.12);
+  color: var(--primary);
 }
 
 .badge-danger {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(192, 57, 43, 0.12);
   color: var(--danger);
+}
+
+.badge-info {
+  background: rgba(106, 155, 204, 0.12);
+  color: var(--accent-blue);
 }
 
 /* Tables */
@@ -402,13 +450,13 @@ input, select, textarea {
 }
 
 .table th {
-  background: var(--light);
+  background: var(--bg);
   font-weight: 700;
-  color: var(--dark);
+  color: var(--ink);
 }
 
 .table tr:hover {
-  background: var(--light);
+  background: var(--bg);
 }
 
 /* Animations */

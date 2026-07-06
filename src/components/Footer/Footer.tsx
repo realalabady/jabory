@@ -13,9 +13,12 @@ import {
   Shield,
   Headphones,
 } from "lucide-react";
+import { useStore } from "../../store/useStore";
 import "./Footer.css";
 
 const Footer: React.FC = () => {
+  const { storeInfo } = useStore();
+  const storeName = storeInfo.storeName || "متجري";
   return (
     <footer className="footer">
       {/* Features */}
@@ -60,10 +63,10 @@ const Footer: React.FC = () => {
           <div className="footer-grid">
             {/* About */}
             <div className="footer-section">
-              <h3 className="footer-title">جبوري للإلكترونيات</h3>
+              <h3 className="footer-title">{storeName}</h3>
               <p className="footer-about">
-                متجرك الأول للإلكترونيات والأجهزة الذكية. نقدم لك أفضل المنتجات
-                بأفضل الأسعار مع ضمان الجودة وخدمة ما بعد البيع.
+                متجرك الأول للتسوق الإلكتروني. نقدم لك أفضل المنتجات بأفضل
+                الأسعار مع ضمان الجودة وخدمة ما بعد البيع.
               </p>
               <div className="footer-social">
                 <a href="#" className="social-link">
@@ -136,17 +139,21 @@ const Footer: React.FC = () => {
               <h3 className="footer-title">تواصل معنا</h3>
               <ul className="footer-contact">
                 <li>
-                  <MapPin size={18} />
-                  <span>الرياض، المملكة العربية السعودية</span>
+                  <MapPin size={18} aria-hidden="true" />
+                  <span>{storeInfo.storeAddress || "المملكة العربية السعودية"}</span>
                 </li>
-                <li>
-                  <Phone size={18} />
-                  <span>0556122411</span>
-                </li>
-                <li>
-                  <Mail size={18} />
-                  <span>jaboor1994@gmail.com</span>
-                </li>
+                {storeInfo.storePhone && (
+                  <li>
+                    <Phone size={18} aria-hidden="true" />
+                    <span>{storeInfo.storePhone}</span>
+                  </li>
+                )}
+                {storeInfo.storeEmail && (
+                  <li>
+                    <Mail size={18} aria-hidden="true" />
+                    <span>{storeInfo.storeEmail}</span>
+                  </li>
+                )}
               </ul>
             </div>
           </div>
@@ -157,7 +164,7 @@ const Footer: React.FC = () => {
       <div className="footer-bottom">
         <div className="container">
           <p>
-            © {new Date().getFullYear()} جبوري للإلكترونيات. جميع الحقوق محفوظة.
+            © {new Date().getFullYear()} {storeName}. جميع الحقوق محفوظة.
           </p>
         </div>
       </div>

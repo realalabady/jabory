@@ -10,6 +10,9 @@ const node_fetch_1 = __importDefault(require("node-fetch"));
 // PayPal API URLs
 const PAYPAL_SANDBOX_URL = "https://api-m.sandbox.paypal.com";
 const PAYPAL_LIVE_URL = "https://api-m.paypal.com";
+// Store branding / base URL (configurable so buyers can rebrand via env).
+const STORE_BASE_URL = process.env.STORE_BASE_URL || "https://jabouri-digital-library.web.app";
+const STORE_BRAND = process.env.STORE_BRAND || "My Store";
 // Get PayPal config from environment variables
 function getPayPalConfig() {
     return {
@@ -71,11 +74,13 @@ async function createOrder(orderData) {
         ],
         // application_context لتجربة مستخدم أفضل
         application_context: {
-            brand_name: "جبوري للإلكترونيات",
+            brand_name: STORE_BRAND,
             landing_page: "NO_PREFERENCE",
             user_action: "PAY_NOW",
-            return_url: "https://jabouri-digital-library.web.app/checkout/success",
-            cancel_url: "https://jabouri-digital-library.web.app/checkout",
+            // ملاحظة: تدفق البطاقة يستخدم SDK (نافذة منبثقة) وليس إعادة توجيه،
+            // لكن نوجّه هذه الروابط لمسارات موجودة فعلاً لتفادي صفحة 404.
+            return_url: `${STORE_BASE_URL}/order-confirmation`,
+            cancel_url: `${STORE_BASE_URL}/checkout`,
         },
     };
     const response = await (0, node_fetch_1.default)(`${baseUrl}/v2/checkout/orders`, {
