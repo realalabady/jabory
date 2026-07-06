@@ -33,9 +33,11 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.scrapeProductFromUrl = exports.tabbyTestConnection = exports.tabbySaveSettings = exports.tabbyGetPaymentStatus = exports.tabbyCapturePayment = exports.tabbyCreateCheckout = exports.tamaraTestConnection = exports.tamaraSaveSettings = exports.tamaraAuthorizeOrder = exports.tamaraGetPaymentStatus = exports.tamaraCreateCheckout = exports.paypalGetOrderStatus = exports.paypalCaptureOrder = exports.paypalCreateOrder = exports.cjImageProxy = exports.cjSyncOrderStatuses = exports.onOrderUpdated = exports.onOrderCreated = exports.cjGetBalance = exports.cjCalculateFreight = exports.cjGetTracking = exports.cjListOrders = exports.cjConfirmOrder = exports.cjCreateOrder = exports.cjGetCategories = exports.cjGetProductInventory = exports.cjGetProductVariants = exports.cjGetProductDetail = exports.cjSearchProducts = exports.cjTestConnection = void 0;
+exports.scrapeProductFromUrl = exports.tabbyTestConnection = exports.tabbySaveSettings = exports.tabbyGetPaymentStatus = exports.tabbyCapturePayment = exports.tabbyCreateCheckout = exports.tamaraTestConnection = exports.tamaraSaveSettings = exports.tamaraAuthorizeOrder = exports.tamaraGetPaymentStatus = exports.tamaraCreateCheckout = exports.paypalGetOrderStatus = exports.paypalCaptureOrder = exports.paypalCreateOrder = exports.cjImageProxy = exports.cjSyncOrderStatuses = exports.onOrderUpdated = exports.onOrderCreated = exports.cjGetBalance = exports.cjCalculateFreight = exports.cjGetTracking = exports.cjListOrders = exports.cjConfirmOrder = exports.cjCreateOrder = exports.cjGetCategories = exports.cjGetProductInventory = exports.cjGetProductVariants = exports.cjGetProductDetail = exports.cjSearchProducts = exports.merchantSyncProductsApi = exports.merchantSyncProducts = exports.merchantSaveApiSettings = exports.merchantProductsFeed = exports.merchantProductsApi = exports.cjTestConnection = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
+const google_auth_library_1 = require("google-auth-library");
+const crypto_1 = require("crypto");
 const cj = __importStar(require("./cjClient"));
 const paypal = __importStar(require("./paypalClient"));
 const tamara = __importStar(require("./tamaraClient"));
@@ -73,6 +75,421 @@ function wrapError(error) {
     }
     throw new functions.https.HttpsError("internal", msg);
 }
+const STORE_BASE_URL = "https://jabouri-digital-library.web.app";
+function xmlEscape(value) {
+    return value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+}
+function stripHtmlTags(value) {
+    return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+function normalizeUrl(url) {
+    if (!url)
+        return "";
+    if (url.startsWith("//"))
+        return `https:${url}`;
+    if (url.startsWith("/"))
+        return `${STORE_BASE_URL}${url}`;
+    return url;
+}
+function toNumber(value) {
+    if (typeof value === "number")
+        return value;
+    if (typeof value === "string") {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+}
+function normalizeImages(value) {
+    if (!Array.isArray(value))
+        return [];
+    const cleaned = value
+        .map((img) => (typeof img === "string" ? normalizeUrl(img.trim()) : ""))
+        .filter((img) => !!img && !img.startsWith("data:"));
+    return [...new Set(cleaned)];
+}
+function mapDocToMerchantProduct(doc) {
+    const data = doc.data();
+    const title = (typeof data.name === "string" && data.name.trim()) ||
+        (typeof data.nameEn === "string" && data.nameEn.trim()) ||
+        "";
+    const rawDescription = (typeof data.description === "string" && data.description) || title;
+    const description = stripHtmlTags(rawDescription).slice(0, 5000);
+    const priceValue = toNumber(data.price);
+    const images = normalizeImages(data.images);
+    const stockValue = toNumber(data.stock);
+    const brand = (typeof data.supplierName === "string" && data.supplierName.trim()) ||
+        "Jabory";
+    if (!title || priceValue <= 0 || images.length === 0)
+        return null;
+    return {
+        id: doc.id,
+        title,
+        description,
+        link: `${STORE_BASE_URL}/product/${doc.id}`,
+        image_link: images[0],
+        additional_image_links: images.slice(1, 10),
+        availability: stockValue > 0 ? "in_stock" : "out_of_stock",
+        price: `${priceValue.toFixed(2)} SAR`,
+        condition: "new",
+        brand,
+    };
+}
+async function loadMerchantProducts(limit) {
+    const snap = await admin.firestore().collection("products").limit(limit).get();
+    return snap.docs
+        .map((doc) => mapDocToMerchantProduct(doc))
+        .filter((p) => p !== null);
+}
+function getStringField(data, key) {
+    const value = data[key];
+    return typeof value === "string" ? value.trim() : "";
+}
+function normalizeDataSourceName(merchantId, dataSourceValue) {
+    if (dataSourceValue.startsWith("accounts/"))
+        return dataSourceValue;
+    return `accounts/${merchantId}/dataSources/${dataSourceValue}`;
+}
+async function getGoogleMerchantSettings() {
+    const settingsDoc = await admin.firestore().doc("settings/googleMerchant").get();
+    const settings = (settingsDoc.data() || {});
+    const merchantId = getStringField(settings, "merchantId") ||
+        (process.env.MERCHANT_ACCOUNT_ID || process.env.MERCHANT_ID || "").trim();
+    const dataSourceRaw = getStringField(settings, "dataSource") ||
+        getStringField(settings, "dataSourceId") ||
+        (process.env.MERCHANT_DATA_SOURCE || process.env.MERCHANT_DATASOURCE_ID || "").trim();
+    const serviceAccountEmail = getStringField(settings, "serviceAccountEmail") ||
+        (process.env.MERCHANT_SERVICE_ACCOUNT_EMAIL || "").trim();
+    const privateKeyRaw = getStringField(settings, "privateKey") ||
+        (process.env.MERCHANT_PRIVATE_KEY || "").trim();
+    const enabledValue = settings.enabled;
+    const enabled = typeof enabledValue === "boolean" ? enabledValue : true;
+    const feedLabel = (getStringField(settings, "feedLabel") ||
+        (process.env.MERCHANT_FEED_LABEL || "SA")).toUpperCase();
+    const contentLanguage = getStringField(settings, "contentLanguage") ||
+        (process.env.MERCHANT_CONTENT_LANGUAGE || "ar").toLowerCase();
+    const currencyCode = (getStringField(settings, "currencyCode") ||
+        (process.env.MERCHANT_CURRENCY_CODE || "SAR")).toUpperCase();
+    const syncToken = getStringField(settings, "syncToken") ||
+        (process.env.MERCHANT_SYNC_TOKEN || "").trim();
+    if (!merchantId || !dataSourceRaw || !serviceAccountEmail || !privateKeyRaw) {
+        return null;
+    }
+    return {
+        enabled,
+        merchantId,
+        dataSourceName: normalizeDataSourceName(merchantId, dataSourceRaw),
+        serviceAccountEmail,
+        privateKey: privateKeyRaw.replace(/\\n/g, "\n"),
+        feedLabel,
+        contentLanguage,
+        currencyCode,
+        syncToken,
+    };
+}
+async function getGoogleMerchantAccessToken(settings) {
+    const jwtClient = new google_auth_library_1.JWT({
+        email: settings.serviceAccountEmail,
+        key: settings.privateKey,
+        scopes: ["https://www.googleapis.com/auth/content"],
+    });
+    const authResult = await jwtClient.authorize();
+    if (!authResult.access_token) {
+        throw new Error("Failed to get Google Merchant access token");
+    }
+    return authResult.access_token;
+}
+function toAmountMicros(priceText) {
+    const numeric = Number(priceText.replace(/[^\d.]/g, ""));
+    const micros = Number.isFinite(numeric) ? Math.round(numeric * 1000000) : 0;
+    return String(Math.max(0, micros));
+}
+function buildProductInputPayload(product, settings) {
+    const productAttributes = {
+        title: product.title,
+        description: product.description,
+        link: product.link,
+        imageLink: product.image_link,
+        availability: product.availability === "in_stock" ? "IN_STOCK" : "OUT_OF_STOCK",
+        condition: "NEW",
+        brand: product.brand,
+        price: {
+            amountMicros: toAmountMicros(product.price),
+            currencyCode: settings.currencyCode,
+        },
+    };
+    if (product.additional_image_links.length > 0) {
+        productAttributes.additionalImageLinks = product.additional_image_links;
+    }
+    return {
+        offerId: product.id,
+        contentLanguage: settings.contentLanguage,
+        feedLabel: settings.feedLabel,
+        productAttributes,
+    };
+}
+async function insertProductInputToMerchant(product, settings, accessToken) {
+    const endpoint = `https://merchantapi.googleapis.com/products/v1/accounts/${settings.merchantId}/productInputs:insert` +
+        `?dataSource=${encodeURIComponent(settings.dataSourceName)}`;
+    const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(buildProductInputPayload(product, settings)),
+    });
+    if (!response.ok) {
+        const errorBody = await response.text();
+        return {
+            offerId: product.id,
+            success: false,
+            statusCode: response.status,
+            error: errorBody.slice(0, 500),
+        };
+    }
+    return { offerId: product.id, success: true, statusCode: response.status };
+}
+async function syncProductsToGoogleMerchant(limit, providedSettings) {
+    const settings = providedSettings || (await getGoogleMerchantSettings());
+    if (!settings) {
+        throw new Error("Google Merchant settings are missing. Configure merchantId, dataSource, serviceAccountEmail, and privateKey first.");
+    }
+    if (!settings.enabled) {
+        throw new Error("Google Merchant sync is disabled in settings.");
+    }
+    const products = await loadMerchantProducts(limit);
+    const accessToken = await getGoogleMerchantAccessToken(settings);
+    const results = [];
+    for (const product of products) {
+        const result = await insertProductInputToMerchant(product, settings, accessToken);
+        results.push(result);
+    }
+    const succeeded = results.filter((r) => r.success).length;
+    return {
+        merchantId: settings.merchantId,
+        dataSource: settings.dataSourceName,
+        requested: products.length,
+        succeeded,
+        failed: results.length - succeeded,
+        failures: results.filter((r) => !r.success),
+    };
+}
+// ==================== Google Merchant JSON API ====================
+exports.merchantProductsApi = functions.https.onRequest(async (req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET");
+    if (req.method === "OPTIONS") {
+        res.status(204).send("");
+        return;
+    }
+    if (req.method !== "GET") {
+        res.status(405).json({ error: "Method not allowed" });
+        return;
+    }
+    try {
+        const parsedLimit = Number(req.query.limit || 1000);
+        const limit = Number.isFinite(parsedLimit)
+            ? Math.max(1, Math.min(5000, parsedLimit))
+            : 1000;
+        const products = await loadMerchantProducts(limit);
+        res.set("Cache-Control", "public, max-age=300");
+        res.status(200).json({
+            source: "Jabory Electronics - API Feed",
+            generatedAt: new Date().toISOString(),
+            currency: "SAR",
+            count: products.length,
+            products,
+        });
+    }
+    catch (error) {
+        console.error("merchantProductsApi error:", error);
+        res.status(500).json({ error: "Failed to build products API" });
+    }
+});
+// ==================== Google Merchant XML Feed ====================
+exports.merchantProductsFeed = functions.https.onRequest(async (req, res) => {
+    if (req.method !== "GET") {
+        res.status(405).send("Method not allowed");
+        return;
+    }
+    try {
+        const parsedLimit = Number(req.query.limit || 1000);
+        const limit = Number.isFinite(parsedLimit)
+            ? Math.max(1, Math.min(5000, parsedLimit))
+            : 1000;
+        const products = await loadMerchantProducts(limit);
+        const items = products
+            .map((p) => {
+            const additionalImages = p.additional_image_links
+                .map((img) => `<g:additional_image_link>${xmlEscape(img)}</g:additional_image_link>`)
+                .join("");
+            return [
+                "<item>",
+                `<g:id>${xmlEscape(p.id)}</g:id>`,
+                `<title>${xmlEscape(p.title)}</title>`,
+                `<description>${xmlEscape(p.description)}</description>`,
+                `<link>${xmlEscape(p.link)}</link>`,
+                `<g:link>${xmlEscape(p.link)}</g:link>`,
+                `<g:image_link>${xmlEscape(p.image_link)}</g:image_link>`,
+                additionalImages,
+                `<g:availability>${p.availability}</g:availability>`,
+                `<g:price>${xmlEscape(p.price)}</g:price>`,
+                `<g:condition>${p.condition}</g:condition>`,
+                `<g:brand>${xmlEscape(p.brand)}</g:brand>`,
+                "</item>",
+            ].join("");
+        })
+            .join("");
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
+  <channel>
+    <title>Jabory Electronics Products</title>
+    <link>${STORE_BASE_URL}</link>
+    <description>Google Merchant product feed for Jabory Electronics</description>
+    ${items}
+  </channel>
+</rss>`;
+        res.set("Content-Type", "application/xml; charset=utf-8");
+        res.set("Cache-Control", "public, max-age=300");
+        res.status(200).send(xml);
+    }
+    catch (error) {
+        console.error("merchantProductsFeed error:", error);
+        res.status(500).send("Failed to build XML feed");
+    }
+});
+// ==================== Google Merchant API Settings ====================
+exports.merchantSaveApiSettings = functions.https.onCall(async (data, context) => {
+    var _a, _b;
+    await verifyAdmin((_a = context.auth) !== null && _a !== void 0 ? _a : undefined);
+    const payload = data;
+    const merchantId = typeof payload.merchantId === "string" ? payload.merchantId.trim() : "";
+    const dataSourceInput = typeof payload.dataSource === "string"
+        ? payload.dataSource.trim()
+        : typeof payload.dataSourceId === "string"
+            ? payload.dataSourceId.trim()
+            : "";
+    const serviceAccountEmail = typeof payload.serviceAccountEmail === "string"
+        ? payload.serviceAccountEmail.trim()
+        : "";
+    const privateKey = typeof payload.privateKey === "string" ? payload.privateKey.trim() : "";
+    if (!merchantId || !dataSourceInput || !serviceAccountEmail || !privateKey) {
+        throw new functions.https.HttpsError("invalid-argument", "merchantId, dataSource, serviceAccountEmail, and privateKey are required");
+    }
+    const feedLabel = typeof payload.feedLabel === "string" && payload.feedLabel.trim()
+        ? payload.feedLabel.trim().toUpperCase()
+        : "SA";
+    const contentLanguage = typeof payload.contentLanguage === "string" && payload.contentLanguage.trim()
+        ? payload.contentLanguage.trim().toLowerCase()
+        : "ar";
+    const currencyCode = typeof payload.currencyCode === "string" && payload.currencyCode.trim()
+        ? payload.currencyCode.trim().toUpperCase()
+        : "SAR";
+    const enabled = typeof payload.enabled === "boolean" ? payload.enabled : true;
+    const existingDoc = await admin.firestore().doc("settings/googleMerchant").get();
+    const existingData = (existingDoc.data() || {});
+    const syncTokenInput = typeof payload.syncToken === "string" ? payload.syncToken.trim() : "";
+    const syncTokenExisting = typeof existingData.syncToken === "string" ? existingData.syncToken.trim() : "";
+    const syncToken = syncTokenInput || syncTokenExisting || (0, crypto_1.randomUUID)().replace(/-/g, "");
+    await admin.firestore().doc("settings/googleMerchant").set({
+        merchantId,
+        dataSource: dataSourceInput,
+        serviceAccountEmail,
+        privateKey,
+        feedLabel,
+        contentLanguage,
+        currencyCode,
+        enabled,
+        syncToken,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: ((_b = context.auth) === null || _b === void 0 ? void 0 : _b.uid) || null,
+    }, { merge: true });
+    return {
+        success: true,
+        merchantId,
+        dataSource: normalizeDataSourceName(merchantId, dataSourceInput),
+        feedLabel,
+        contentLanguage,
+        currencyCode,
+        enabled,
+        syncToken,
+    };
+});
+// ==================== Google Merchant API Sync (Admin Callable) ====================
+exports.merchantSyncProducts = functions.https.onCall(async (data, context) => {
+    var _a, _b;
+    await verifyAdmin((_a = context.auth) !== null && _a !== void 0 ? _a : undefined);
+    try {
+        const payload = data;
+        const parsedLimit = Number((_b = payload.limit) !== null && _b !== void 0 ? _b : 500);
+        const limit = Number.isFinite(parsedLimit)
+            ? Math.max(1, Math.min(5000, parsedLimit))
+            : 500;
+        return await syncProductsToGoogleMerchant(limit);
+    }
+    catch (error) {
+        wrapError(error);
+    }
+});
+// ==================== Google Merchant API Sync (HTTP Endpoint) ====================
+exports.merchantSyncProductsApi = functions.https.onRequest(async (req, res) => {
+    var _a, _b;
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, X-Sync-Token");
+    if (req.method === "OPTIONS") {
+        res.status(204).send("");
+        return;
+    }
+    if (req.method !== "POST") {
+        res.status(405).json({ error: "Method not allowed" });
+        return;
+    }
+    try {
+        const settings = await getGoogleMerchantSettings();
+        if (!settings) {
+            res.status(412).json({
+                error: "Google Merchant settings are missing. Configure settings/googleMerchant first.",
+            });
+            return;
+        }
+        if (!settings.syncToken) {
+            res.status(412).json({
+                error: "syncToken is not configured. Save Merchant API settings first.",
+            });
+            return;
+        }
+        const tokenFromHeader = (req.get("X-Sync-Token") || "").trim();
+        const tokenFromQuery = typeof req.query.token === "string" ? req.query.token.trim() : "";
+        const providedToken = tokenFromHeader || tokenFromQuery;
+        if (providedToken !== settings.syncToken) {
+            res.status(401).json({ error: "Invalid sync token" });
+            return;
+        }
+        const body = (req.body || {});
+        const parsedLimit = Number((_b = (_a = body.limit) !== null && _a !== void 0 ? _a : req.query.limit) !== null && _b !== void 0 ? _b : 500);
+        const limit = Number.isFinite(parsedLimit)
+            ? Math.max(1, Math.min(5000, parsedLimit))
+            : 500;
+        const result = await syncProductsToGoogleMerchant(limit, settings);
+        res.status(200).json({
+            success: true,
+            ...result,
+            syncedAt: new Date().toISOString(),
+        });
+    }
+    catch (error) {
+        console.error("merchantSyncProductsApi error:", error);
+        const msg = error instanceof Error ? error.message : "Failed to sync products to Merchant API";
+        res.status(500).json({ error: msg });
+    }
+});
 // ==================== البحث عن منتجات ====================
 exports.cjSearchProducts = functions.https.onCall(async (data, context) => {
     var _a, _b, _c;
